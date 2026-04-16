@@ -61,8 +61,12 @@ def get_all_announcements(
         default="",
         description="지역 필터 (쉼표 구분, 예: 서울,경기,인천). 비우면 전체.",
     ),
+    district: str = Query(
+        default="",
+        description="세부 지역 필터 (구/군, 쉼표 구분, 예: 강남구,서초구). 비우면 전체.",
+    ),
 ):
-    """청약 공고 통합 조회. category, region으로 필터링 가능."""
+    """청약 공고 통합 조회. category, region, district로 필터링 가능."""
     if not DATA_GO_KR_API_KEY:
         raise HTTPException(status_code=503, detail="Server API key not configured")
 
@@ -88,6 +92,11 @@ def get_all_announcements(
     if region.strip():
         region_filter = {r.strip() for r in region.split(",") if r.strip()}
 
+    # 세부 지역 필터 파싱
+    district_filter = set()
+    if district.strip():
+        district_filter = {d.strip() for d in district.split(",") if d.strip()}
+
     announcements = []
     errors = []
 
@@ -100,14 +109,17 @@ def get_all_announcements(
             logger.error(f"[{label}] crawl failed: {e}")
             errors.append(f"{label}: {str(e)}")
 
-    # ID 기준 전역 중복 제거
+    # ID 기준 전역 중복 제거 + 필터링
     seen = set()
     unique = []
     for ann in announcements:
         if ann["id"] not in seen:
             seen.add(ann["id"])
-            # 지역 필터 적용
-            if region_filter and ann.get("region") not in region_filter:
+            # 지역 필터 ("전국"은 항상 통과)
+            if region_filter and ann.get("region") not in region_filter and ann.get("region") != "전국":
+                continue
+            # 세부 지역 필터
+            if district_filter and ann.get("district") and ann.get("district") not in district_filter:
                 continue
             unique.append(ann)
 
@@ -118,6 +130,7 @@ def get_all_announcements(
         "filters": {
             "category": category,
             "region": list(region_filter) if region_filter else "all",
+            "district": list(district_filter) if district_filter else "all",
             "active_only": active_only,
             "months_back": months_back,
         },

@@ -1,5 +1,6 @@
 """공통 HTTP 호출 + 표준화 유틸."""
 
+import re
 import time
 import logging
 import requests
@@ -125,6 +126,28 @@ def fetch_size_map(mdl_url: str, startmonth: str, endmonth: str) -> dict[str, st
     return size_map
 
 
+def extract_district(address: str) -> str:
+    """주소에서 구/군/시(세부지역)를 추출한다."""
+    if not address:
+        return ""
+    # "서울특별시 서초구 ..." → "서초구"
+    # "경기도 성남시 분당구 ..." → "분당구"
+    # "경기도 화성시 ..." → "화성시"
+    parts = address.split()
+    for i, part in enumerate(parts):
+        # 첫 번째 토큰은 광역시/도 → 건너뜀
+        if i == 0:
+            continue
+        if re.match(r'^[가-힣]+[구군]$', part):
+            return part
+        # "성남시" 같은 시 단위 — 뒤에 구가 있으면 구를 우선
+        if re.match(r'^[가-힣]+시$', part):
+            if i + 1 < len(parts) and re.match(r'^[가-힣]+[구군]$', parts[i + 1]):
+                return parts[i + 1]
+            return part
+    return ""
+
+
 def normalize_applyhome(item: dict, prefix: str, category: str) -> dict | None:
     """청약홈 계열 API (APT/오피스텔/잔여/임대/임의) 공통 표준화."""
     try:
@@ -144,11 +167,14 @@ def normalize_applyhome(item: dict, prefix: str, category: str) -> dict | None:
             or item.get("HOUSE_SECD_NM", "")
         )
 
+        address = item.get("HSSPLY_ADRES", "")
+
         return {
             "id": f"{prefix}_{ann_id}" if prefix else str(ann_id),
             "name": item.get("HOUSE_NM", ""),
             "region": area_name,
-            "address": item.get("HSSPLY_ADRES", ""),
+            "district": extract_district(address),
+            "address": address,
             "period": period,
             "rcept_end": rcept_end,
             "total_units": str(item.get("TOT_SUPLY_HSHLDCO", "")),
