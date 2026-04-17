@@ -82,6 +82,18 @@ Windows 사용자는 파일 속성 → 보안 탭에서 본인 계정만 권한 
 
 `~/.config/k-skill/apt-alert-profile.json`
 
+### 프로필 저장 후 자동 권한 설정
+
+프로필(또는 favorites/notified) 파일을 작성/갱신할 때마다 Unix 계열 OS는 권한을 600으로 자동 설정한다. Windows는 기본 사용자 프로필 폴더가 이미 본인 한정이므로 별도 조치 불필요.
+
+**Claude 실행 책임 (자동)**:
+```bash
+# Unix/macOS/WSL
+chmod 600 ~/.config/k-skill/*.json 2>/dev/null || true
+# Windows: %USERPROFILE%\.config\k-skill\ 폴더가 이미 사용자 한정이므로 skip
+```
+프로필을 편집한 모든 작업(설치·setup·부분 업데이트·favorites 추가) 끝에 이 명령을 실행한다.
+
 ### 프로필 삭제 (`profile --delete`)
 
 사용자가 "프로필 삭제", "내 정보 지워", `profile --delete` 등을 요청하면:

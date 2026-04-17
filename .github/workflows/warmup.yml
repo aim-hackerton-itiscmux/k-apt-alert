@@ -1,0 +1,14 @@
+name: Render warmup
+
+on:
+  schedule:
+    - cron: "*/12 * * * *"  # 12분 간격 (Render free tier 15분 슬립 임계 이전)
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping /health
+        run: |
+          curl -sS --max-time 45 "https://k-apt-alert-proxy.onrender.com/health" || echo "ping failed (ok to retry)"

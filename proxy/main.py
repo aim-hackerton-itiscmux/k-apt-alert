@@ -27,9 +27,24 @@ if SENTRY_DSN:
     except ImportError:
         pass
 
-CACHE_TTL_SECONDS = 600
+CACHE_TTL_SECONDS = 600  # 기본 TTL
+CACHE_TTLS = {
+    # 월배치 API는 짧게 잡을 이유 없음 → 1시간
+    "apt": 3600,
+    "pbl_pvt_rent": 1800,
+    # 실시간성 있는 것은 기본값
+    "officetell": 600,
+    "lh": 600,
+    "remndr": 600,
+    "opt": 600,
+}
 _cache: dict = {}
 _cache_lock = Lock()
+
+
+def _ttl_for(cache_key: str) -> int:
+    prefix = cache_key.split(":", 1)[0]
+    return CACHE_TTLS.get(prefix, CACHE_TTL_SECONDS)
 
 DAILY_CALL_LIMIT = 9000  # 공공 API 일반 키 일일 10000, 90% 지점에서 보호
 _rate_counter = {"date": "", "count": 0}
@@ -103,12 +118,13 @@ def _add_d_day(ann: dict) -> dict:
 
 
 def _fetch_category(key: str, label: str, fn) -> list:
-    """카테고리별 fetch + in-memory 캐시 (TTL 10분) + rate limit 보호."""
+    """카테고리별 fetch + in-memory 캐시 (카테고리별 TTL) + rate limit 보호 + 실패 시 stale fallback."""
     now = time.time()
+    ttl = _ttl_for(key)
     with _cache_lock:
         entry = _cache.get(key)
-        if entry and now - entry["ts"] < CACHE_TTL_SECONDS:
-            logger.info(f"[{label}] cache hit ({len(entry['items'])} items, age {int(now - entry['ts'])}s)")
+        if entry and now - entry["ts"] < ttl:
+            logger.info(f"[{label}] cache hit ({len(entry['items'])} items, age {int(now - entry['ts'])}s, ttl={ttl})")
             return entry["items"]
 
     count, limit = _check_rate_limit()
@@ -118,11 +134,18 @@ def _fetch_category(key: str, label: str, fn) -> list:
             return entry["items"]
         raise RuntimeError(f"Daily API call limit reached ({limit})")
 
-    items = fn()
-    logger.info(f"[{label}] {len(items)} items fetched (cache miss, daily count={count})")
-    with _cache_lock:
-        _cache[key] = {"ts": now, "items": items}
-    return items
+    try:
+        items = fn()
+        logger.info(f"[{label}] {len(items)} items fetched (cache miss, daily count={count})")
+        with _cache_lock:
+            _cache[key] = {"ts": now, "items": items}
+        return items
+    except Exception as e:
+        # Fetch 실패 시 stale cache 있으면 반환 (가용성 우선)
+        if entry:
+            logger.warning(f"[{label}] fetch failed, serving stale ({int(now - entry['ts'])}s old): {e}")
+            return entry["items"]
+        raise
 
 
 def _dedup_announcements(announcements: list) -> list:
