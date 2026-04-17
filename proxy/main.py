@@ -7,6 +7,7 @@ k-apt-alert proxy server
 import logging
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from contextlib import asynccontextmanager
 from threading import Lock
@@ -150,15 +151,29 @@ def _dedup_announcements(announcements: list) -> list:
     return unique
 
 
+def _is_active(ann) -> bool:
+    """active_only 클라이언트 사이드 필터 — rcept_end가 오늘 이후면 True."""
+    rcept_end = str(ann.get("rcept_end", ""))
+    if not rcept_end or len(rcept_end) < 8:
+        return False
+    try:
+        fmt = "%Y-%m-%d" if "-" in rcept_end else "%Y%m%d"
+        end_date = datetime.strptime(rcept_end[:10], fmt).date()
+        return end_date >= datetime.now().date()
+    except ValueError:
+        return False
+
+
 def _fetch_and_filter(category, active_only, months_back, region_filter, district_filter):
-    """공통 조회 + 필터링 로직."""
+    """공통 조회 + 필터링 로직. 카테고리별 병렬 fetch + active_only는 클라이언트 필터."""
+    # 캐시는 항상 active_only=False 기준으로 적재 (키 분리 제거) → active_only=True 요청도 캐시 재활용
     fetchers = {
-        "apt": ("APT 일반분양", lambda: applyhome.fetch(months_back, active_only), f"apt:{months_back}:{active_only}"),
-        "officetell": ("오피스텔/도시형", lambda: officetell.fetch(min(months_back, 1), active_only), f"officetell:{min(months_back,1)}:{active_only}"),
-        "lh": ("LH 공공분양", lambda: lh.fetch(days_back=30 * months_back, active_only=active_only), f"lh:{months_back}:{active_only}"),
-        "remndr": ("APT 잔여세대", lambda: remndr.fetch(months_back, active_only), f"remndr:{months_back}:{active_only}"),
-        "pbl_pvt_rent": ("공공지원민간임대", lambda: pbl_pvt_rent.fetch(min(months_back, 1), active_only), f"pbl_pvt_rent:{min(months_back,1)}:{active_only}"),
-        "opt": ("임의공급", lambda: opt.fetch(min(months_back, 1), active_only), f"opt:{min(months_back,1)}:{active_only}"),
+        "apt": ("APT 일반분양", lambda: applyhome.fetch(months_back, False), f"apt:{months_back}"),
+        "officetell": ("오피스텔/도시형", lambda: officetell.fetch(min(months_back, 1), False), f"officetell:{min(months_back,1)}"),
+        "lh": ("LH 공공분양", lambda: lh.fetch(days_back=30 * months_back, active_only=False), f"lh:{months_back}"),
+        "remndr": ("APT 잔여세대", lambda: remndr.fetch(months_back, False), f"remndr:{months_back}"),
+        "pbl_pvt_rent": ("공공지원민간임대", lambda: pbl_pvt_rent.fetch(min(months_back, 1), False), f"pbl_pvt_rent:{min(months_back,1)}"),
+        "opt": ("임의공급", lambda: opt.fetch(min(months_back, 1), False), f"opt:{min(months_back,1)}"),
     }
 
     if category != "all" and category not in fetchers:
@@ -169,13 +184,19 @@ def _fetch_and_filter(category, active_only, months_back, region_filter, distric
     announcements = []
     errors = []
 
-    for key, (label, fn, cache_key) in targets.items():
-        try:
-            items = _fetch_category(cache_key, label, fn)
-            announcements.extend(items)
-        except Exception as e:
-            logger.error(f"[{label}] crawl failed: {e}")
-            errors.append(f"{label}: {str(e)}")
+    with ThreadPoolExecutor(max_workers=len(targets)) as ex:
+        futures = {
+            ex.submit(_fetch_category, cache_key, label, fn): (key, label)
+            for key, (label, fn, cache_key) in targets.items()
+        }
+        for fut in as_completed(futures):
+            key, label = futures[fut]
+            try:
+                items = fut.result()
+                announcements.extend(items)
+            except Exception as e:
+                logger.error(f"[{label}] crawl failed: {e}")
+                errors.append(f"{label}: {str(e)}")
 
     unique = []
     for ann in _dedup_announcements(announcements):
@@ -183,7 +204,10 @@ def _fetch_and_filter(category, active_only, months_back, region_filter, distric
             continue
         if district_filter and ann.get("district") and ann.get("district") not in district_filter:
             continue
-        unique.append(_add_d_day(ann))
+        ann = _add_d_day(ann)
+        if active_only and not _is_active(ann):
+            continue
+        unique.append(ann)
 
     return unique, errors, None
 
