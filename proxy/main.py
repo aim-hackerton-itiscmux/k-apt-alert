@@ -365,10 +365,12 @@ def notify(
 
     if reminder:
         active = _apply_reminder_filter(unique, reminder)
+        empty_label = f"reminder={reminder}"
     else:
         active = [a for a in unique if a.get("d_day") is not None and a.get("d_day", -1) >= 0]
+        empty_label = "active announcements"
     if not active:
-        return {"sent": 0, "message": f"No announcements matching reminder='{reminder or 'active'}'"}
+        return {"sent": 0, "message": f"No {empty_label} to notify"}
 
     # D-day 기준 정렬 (마감 임박순)
     active.sort(key=lambda x: x.get("d_day", 999))
@@ -418,6 +420,14 @@ def notify(
     try:
         resp = requests.post(webhook_url, json=payload, timeout=10)
         resp.raise_for_status()
+        # Slack은 invalid payload/token도 2xx로 줄 수 있음 → body가 "ok"인지 명시 검증
+        body_text = resp.text.strip()
+        if body_text and body_text != "ok":
+            logger.error(f"Slack notify 2xx but body not 'ok': {body_text[:200]}")
+            raise HTTPException(
+                status_code=502,
+                detail=f"Slack 응답이 ok가 아님 — '{body_text[:200]}'. webhook URL 토큰을 확인하세요.",
+            )
         logger.info(f"Slack notify sent: {len(active)} announcements")
         return {"sent": len(active), "message": "Slack notification sent successfully"}
     except requests.HTTPError as e:
@@ -427,6 +437,8 @@ def notify(
     except requests.Timeout:
         logger.error("Slack notify timeout")
         raise HTTPException(status_code=504, detail="Slack delivery timed out after 10s")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Slack notify failed: {e}")
         raise HTTPException(status_code=502, detail=f"Slack delivery failed: {str(e)}")
