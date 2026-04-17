@@ -5,6 +5,7 @@ k-apt-alert proxy server
 """
 
 import logging
+import os
 import time
 from datetime import datetime
 from contextlib import asynccontextmanager
@@ -17,9 +18,32 @@ from fastapi.middleware.cors import CORSMiddleware
 from config import DATA_GO_KR_API_KEY
 from crawlers import applyhome, officetell, lh, remndr, pbl_pvt_rent, opt
 
+SENTRY_DSN = os.environ.get("SENTRY_DSN", "")
+if SENTRY_DSN:
+    try:
+        import sentry_sdk
+        sentry_sdk.init(dsn=SENTRY_DSN, traces_sample_rate=0.1, environment=os.environ.get("SENTRY_ENV", "prod"))
+    except ImportError:
+        pass
+
 CACHE_TTL_SECONDS = 600
 _cache: dict = {}
 _cache_lock = Lock()
+
+DAILY_CALL_LIMIT = 9000  # 공공 API 일반 키 일일 10000, 90% 지점에서 보호
+_rate_counter = {"date": "", "count": 0}
+_rate_lock = Lock()
+
+
+def _check_rate_limit():
+    """일일 호출 카운터 — 한도 임박 시 503 반환용."""
+    today = datetime.now().strftime("%Y-%m-%d")
+    with _rate_lock:
+        if _rate_counter["date"] != today:
+            _rate_counter["date"] = today
+            _rate_counter["count"] = 0
+        _rate_counter["count"] += 1
+        return _rate_counter["count"], DAILY_CALL_LIMIT
 
 logging.basicConfig(
     level=logging.INFO,
@@ -78,15 +102,23 @@ def _add_d_day(ann: dict) -> dict:
 
 
 def _fetch_category(key: str, label: str, fn) -> list:
-    """카테고리별 fetch + in-memory 캐시 (TTL 10분)."""
+    """카테고리별 fetch + in-memory 캐시 (TTL 10분) + rate limit 보호."""
     now = time.time()
     with _cache_lock:
         entry = _cache.get(key)
         if entry and now - entry["ts"] < CACHE_TTL_SECONDS:
             logger.info(f"[{label}] cache hit ({len(entry['items'])} items, age {int(now - entry['ts'])}s)")
             return entry["items"]
+
+    count, limit = _check_rate_limit()
+    if count > limit:
+        logger.warning(f"[{label}] daily rate limit exceeded ({count}/{limit}) — serving stale cache if any")
+        if entry:
+            return entry["items"]
+        raise RuntimeError(f"Daily API call limit reached ({limit})")
+
     items = fn()
-    logger.info(f"[{label}] {len(items)} items fetched (cache miss)")
+    logger.info(f"[{label}] {len(items)} items fetched (cache miss, daily count={count})")
     with _cache_lock:
         _cache[key] = {"ts": now, "items": items}
     return items
@@ -156,6 +188,54 @@ def _fetch_and_filter(category, active_only, months_back, region_filter, distric
     return unique, errors, None
 
 
+def _apply_extra_filters(anns, min_units, constructor_contains, exclude_ids):
+    """세대수·시공사·제외 ID 필터."""
+    result = []
+    exclude = {i.strip() for i in exclude_ids.split(",") if i.strip()} if exclude_ids else set()
+    kw_list = [k.strip().lower() for k in constructor_contains.split(",") if k.strip()] if constructor_contains else []
+    for a in anns:
+        if exclude and str(a.get("id", "")) in exclude:
+            continue
+        if min_units > 0:
+            try:
+                u = int(str(a.get("total_units", "0")).replace(",", "") or "0")
+            except ValueError:
+                u = 0
+            if u < min_units:
+                continue
+        if kw_list:
+            ctor = str(a.get("constructor", "")).lower()
+            if not any(kw in ctor for kw in kw_list):
+                continue
+        result.append(a)
+    return result
+
+
+def _apply_reminder_filter(anns, reminder):
+    """리마인더 타입별 공고 필터.
+    d3  — D-3 이하 마감 임박 공고
+    d1  — D-1 이하 초긴급 공고
+    winners — 접수 마감 후 7~10일 (당첨자 발표 예정)
+    contract — 접수 마감 후 14~21일 (계약 체결 예정)
+    """
+    if not reminder:
+        return anns
+    result = []
+    for a in anns:
+        d = a.get("d_day")
+        if d is None:
+            continue
+        if reminder == "d3" and 0 <= d <= 3:
+            result.append(a)
+        elif reminder == "d1" and 0 <= d <= 1:
+            result.append(a)
+        elif reminder == "winners" and -10 <= d <= -7:
+            result.append(a)
+        elif reminder == "contract" and -21 <= d <= -14:
+            result.append(a)
+    return result
+
+
 @app.get("/health")
 def health():
     return {"status": "ok", "api_key_configured": bool(DATA_GO_KR_API_KEY)}
@@ -168,8 +248,12 @@ def get_all_announcements(
     months_back: int = Query(default=2, ge=1, le=12, description="조회 기간 (개월)"),
     region: str = Query(default="", description="지역 필터 (쉼표 구분)"),
     district: str = Query(default="", description="세부 지역 필터 (구/군, 쉼표 구분)"),
+    min_units: int = Query(default=0, ge=0, description="최소 세대수 (대단지 필터)"),
+    constructor_contains: str = Query(default="", description="시공사 키워드 필터 (쉼표 구분)"),
+    exclude_ids: str = Query(default="", description="제외할 공고 ID (중복 알림 방지용)"),
+    reminder: str = Query(default="", description="리마인더 타입: d3 / d1 / winners / contract"),
 ):
-    """청약 공고 통합 조회. D-day 포함."""
+    """청약 공고 통합 조회. D-day + 필터 축 + 리마인더 모드."""
     if not DATA_GO_KR_API_KEY:
         raise HTTPException(status_code=503, detail="Server API key not configured")
 
@@ -179,6 +263,9 @@ def get_all_announcements(
     unique, errors, err_msg = _fetch_and_filter(category, active_only, months_back, region_filter, district_filter)
     if err_msg:
         raise HTTPException(status_code=400, detail=err_msg)
+
+    unique = _apply_extra_filters(unique, min_units, constructor_contains, exclude_ids)
+    unique = _apply_reminder_filter(unique, reminder)
 
     return {
         "count": len(unique),
@@ -190,6 +277,10 @@ def get_all_announcements(
             "district": list(district_filter) if district_filter else "all",
             "active_only": active_only,
             "months_back": months_back,
+            "min_units": min_units,
+            "constructor_contains": constructor_contains or None,
+            "exclude_ids": list({i.strip() for i in exclude_ids.split(",") if i.strip()}) if exclude_ids else None,
+            "reminder": reminder or None,
         },
     }
 
@@ -202,6 +293,10 @@ def notify(
     months_back: int = Query(default=2, ge=1, le=12),
     region: str = Query(default=""),
     district: str = Query(default=""),
+    min_units: int = Query(default=0, ge=0),
+    constructor_contains: str = Query(default=""),
+    exclude_ids: str = Query(default=""),
+    reminder: str = Query(default="", description="리마인더: d3/d1/winners/contract"),
 ):
     """청약 공고 조회 후 Slack으로 자동 발송. cron/외부 스케줄러에서 호출."""
     if not DATA_GO_KR_API_KEY:
@@ -216,13 +311,17 @@ def notify(
     if err_msg:
         raise HTTPException(status_code=400, detail=err_msg)
 
+    unique = _apply_extra_filters(unique, min_units, constructor_contains, exclude_ids)
+
     if not unique:
         return {"sent": 0, "message": "No announcements to notify"}
 
-    # 접수 중인 공고만 (D-day >= 0)
-    active = [a for a in unique if a.get("d_day") is not None and a.get("d_day", -1) >= 0]
+    if reminder:
+        active = _apply_reminder_filter(unique, reminder)
+    else:
+        active = [a for a in unique if a.get("d_day") is not None and a.get("d_day", -1) >= 0]
     if not active:
-        return {"sent": 0, "message": "No active announcements"}
+        return {"sent": 0, "message": f"No announcements matching reminder='{reminder or 'active'}'"}
 
     # D-day 기준 정렬 (마감 임박순)
     active.sort(key=lambda x: x.get("d_day", 999))
@@ -288,21 +387,21 @@ def notify(
 
 @app.get("/v1/apt/cache")
 def cache_status():
-    """디버깅용 — 카테고리별 캐시 상태."""
+    """디버깅용 — 카테고리별 캐시 상태 + 일일 호출 카운터."""
     now = time.time()
     with _cache_lock:
-        return {
-            "entries": [
-                {
-                    "key": key,
-                    "items": len(entry["items"]),
-                    "age_seconds": int(now - entry["ts"]),
-                    "ttl_remaining": max(0, CACHE_TTL_SECONDS - int(now - entry["ts"])),
-                }
-                for key, entry in _cache.items()
-            ],
-            "ttl_seconds": CACHE_TTL_SECONDS,
-        }
+        entries = [
+            {
+                "key": key,
+                "items": len(entry["items"]),
+                "age_seconds": int(now - entry["ts"]),
+                "ttl_remaining": max(0, CACHE_TTL_SECONDS - int(now - entry["ts"])),
+            }
+            for key, entry in _cache.items()
+        ]
+    with _rate_lock:
+        rate = {"date": _rate_counter["date"], "count": _rate_counter["count"], "limit": DAILY_CALL_LIMIT}
+    return {"entries": entries, "ttl_seconds": CACHE_TTL_SECONDS, "rate_limit": rate}
 
 
 @app.get("/v1/apt/categories")

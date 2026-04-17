@@ -188,21 +188,46 @@ def match_special(prof):
     return specials
 
 
-def calc_score(prof):
+CURRENT_YEAR = 2026
+
+
+def calc_homeless_score(prof):
+    """무주택 기간 점수 — 만 30세 ↔ 혼인신고일 중 늦은 날부터 기산."""
+    if not prof["homeless"]:
+        return 0
+    year_30 = prof["birth_year"] + 30
+    start_year = year_30
+    if prof.get("marriage_date"):
+        marriage_year = int(prof["marriage_date"].split("-")[0])
+        start_year = max(year_30, marriage_year)
+    if CURRENT_YEAR < start_year:
+        return 0
+    years = CURRENT_YEAR - start_year
+    # 최초 1년 미만은 2점, 이후 연 2점 증가, 최대 32점 (무주택 15년+)
+    return min(2 + years * 2, 32)
+
+
+def calc_account_score(prof):
+    """통장 가입기간 점수 — 미성년 가입분은 최대 2년만 인정."""
+    acct = prof["subscription_account"]
+    if not acct["has_account"]:
+        return 0
+    years = acct["years"]
     age = prof["age"]
-    deps = prof["dependents_count"]
-    years = prof["subscription_account"]["years"]
-    homeless = prof["homeless"]
-
-    if not homeless:
-        h = 0
-    elif age >= 30:
-        h = min(2 + (age - 30) * 2, 32)
+    join_age = age - years
+    if join_age >= 19:
+        effective = years
     else:
-        h = 0
+        minor_span = min(19 - join_age, years)
+        effective = min(minor_span, 2) + max(0, years - minor_span)
+    return min(effective * 2, 17)
 
-    d = min(5 + deps * 5, 35)
-    a = min(years * 2, 17)
+
+def calc_score(prof):
+    """가점 (무주택, 부양가족, 통장)."""
+    h = calc_homeless_score(prof)
+    d = min(5 + prof["dependents_count"] * 5, 35)
+    a = calc_account_score(prof)
     return h, d, a
 
 
@@ -339,12 +364,45 @@ def run_mock_tests():
     if sortable[0]["d_day"] != 0 or sortable[-1]["d_day"] != 10:
         test_issues.append("D-day 정렬 실패")
 
+    # 무주택 기간 — 만 30세 이전 기혼자
+    early_married = {
+        "birth_year": 2000, "age": 26, "homeless": True,
+        "marriage_date": "2022-06",  # 만 22세 결혼
+        "subscription_account": {"has_account": True, "years": 5},
+        "dependents_count": 1,
+    }
+    h = calc_homeless_score(early_married)
+    # 만 30세(2030) vs 혼인(2022) → max=2030 > 현재(2026) → 0점 유지
+    if h != 0:
+        test_issues.append(f"만 30세 이전 기혼자 무주택=0 기대, 실제 {h}")
+
+    late_30_married = {
+        "birth_year": 1990, "age": 36, "homeless": True,
+        "marriage_date": "2024-03",  # 34세 결혼
+        "subscription_account": {"has_account": True, "years": 10},
+        "dependents_count": 1,
+    }
+    h2 = calc_homeless_score(late_30_married)
+    # 만 30세(2020) vs 혼인(2024) → max=2024, 2026-2024=2년 → 2 + 2*2 = 6
+    if h2 != 6:
+        test_issues.append(f"30세 이후 기혼자 무주택=6 기대, 실제 {h2}")
+
+    # 통장 미성년 상한 — 만 15세 가입 → 10년 누적
+    minor_joiner = {
+        "age": 25,
+        "subscription_account": {"has_account": True, "years": 10},
+    }
+    a = calc_account_score(minor_joiner)
+    # join_age=15, minor_span=min(19-15, 10)=4, minor_counted=min(4,2)=2, adult=6 → 8 * 2 = 16
+    if a != 16:
+        test_issues.append(f"미성년 가입 통장 16점 기대, 실제 {a}")
+
     if test_issues:
         print(f"  Mock 테스트 실패: {len(test_issues)}건")
         for t in test_issues:
             print(f"    !! {t}")
         sys.exit(1)
-    print("  ✓ LH 전국 공고 통과 / 지역 필터 / D-day 정렬 정상")
+    print("  ✓ LH 전국 통과 / D-day 정렬 / 무주택 기간 / 통장 미성년 상한 모두 정상")
 
 
 if __name__ == "__main__":

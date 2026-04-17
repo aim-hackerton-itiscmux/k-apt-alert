@@ -1,0 +1,49 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  mock-tests:
+    name: Mock tests (network-free)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install deps
+        run: pip install requests
+      - name: Syntax check
+        run: |
+          python -c "import ast; ast.parse(open('proxy/main.py', encoding='utf-8').read())"
+          python -c "import ast; ast.parse(open('test_personas.py', encoding='utf-8').read())"
+      - name: Run mock tests
+        run: |
+          python - <<'PY'
+          import test_personas as T
+          T.run_mock_tests()
+          print("mock tests OK")
+          PY
+
+  e2e-tests:
+    name: E2E against deployed proxy
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests
+      - name: Warmup proxy
+        run: curl -s --max-time 60 "https://k-apt-alert-proxy.onrender.com/health" || true
+      - name: E2E personas
+        env:
+          PROXY_URL: https://k-apt-alert-proxy.onrender.com
+          PYTHONIOENCODING: utf-8
+        run: python test_personas.py
