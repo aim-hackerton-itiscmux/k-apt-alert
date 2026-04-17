@@ -5,7 +5,9 @@ license: MIT
 metadata:
   category: real-estate
   locale: ko-KR
-  phase: v2
+  phase: v2.3
+  homepage: https://github.com/tkddnjs-dlqslek/k-apt-alert
+  k_skill_family: NomaDamas/k-skill
 ---
 
 # 한국 청약 공고 알리미

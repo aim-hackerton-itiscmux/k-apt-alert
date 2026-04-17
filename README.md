@@ -1,78 +1,62 @@
-# k-apt-alert
+# korea-apt-alert
 
-한국 청약 공고 알리미 — Claude Code 스킬
+> 한국 청약 공고를 개인 프로필 기반으로 조회·분석하고 Slack/Telegram으로 알림받는 Claude Code 스킬.
 
-공공데이터포털의 청약홈 분양정보 API를 프록시 서버 경유로 조회하여, 사용자가 **API 키 없이** 최신 청약 공고를 조회·분석·알림받을 수 있습니다.
+공공데이터포털 청약홈 분양정보 API 6종을 프록시 서버 경유로 통합 조회합니다. 사용자는 **API 키 없이** 최신 공고를 받아볼 수 있고, 개인 프로필을 등록하면 가점 추정·특별공급 자격·추천 유형까지 맞춤 분석됩니다.
 
-## 구조
+[NomaDamas/k-skill](https://github.com/NomaDamas/k-skill) 생태계 컨벤션(`~/.config/k-skill/*.json`)을 따릅니다.
 
-```
-k-apt-alert/
-├── korea-apt-alert/    ← Claude Code 스킬 (사용자가 설치)
-│   └── SKILL.md
-├── proxy/              ← 프록시 서버 (운영자가 배포)
-│   ├── main.py
-│   ├── config.py
-│   ├── requirements.txt
-│   ├── Dockerfile
-│   └── crawlers/
-└── render.yaml         ← Render 배포 설정
-```
+## 어떤 걸 할 수 있나
 
-## 스킬 설치 (사용자)
+| 기능 | 설명 | 로그인 필요 |
+|------|------|-------------|
+| 최신 공고 조회 | APT 일반분양·오피스텔·LH·잔여세대·공공지원민간임대·임의공급 6종 통합 | ❌ |
+| 지역·구/군 필터 | 서울·경기·인천 등 17개 광역 + 세부 구/군 | ❌ |
+| 프로필 기반 맞춤 추천 | 청약통장·무주택 여부·소득 구간 기준 자격 매칭 | ❌ (로컬 저장) |
+| 추정 가점 계산 | 무주택 기간 + 부양가족 + 통장 가입기간 → 84점 만점 | ❌ |
+| 특별공급 자격 판정 | 신혼부부·생애최초·다자녀·한부모·노부모 | ❌ |
+| 가점대별 전략 안내 | 20점 미만 → 오피스텔 권장, 60+ → 수도권 도전 등 | ❌ |
+| D-day 알림 | 마감 임박(D-3/D-1) / 당첨자 발표 / 계약 체결 | ❌ |
+| 즐겨찾기 공고 | 관심 공고 저장 + 상태 변동 추적 | ❌ |
+| 중복 알림 방지 | 7일 이내 발송 공고 자동 제외 | ❌ |
+| Slack·Telegram 발송 | Block Kit 포맷 + 긴급도 이모지 | Slack/Telegram 계정 |
+| 인접 지역 확장 | 매칭 0건이면 인접 도/광역 제안 (17개 매핑) | ❌ |
+| 세대수·시공사 필터 | 대단지·1군 브랜드 필터 | ❌ |
+
+## 처음 시작하는 순서
+
+### 1단계: 스킬 설치
 
 ```bash
-# 스킬 폴더를 Claude Code 개인 스킬 디렉토리에 복사
+# 개인 스킬 디렉토리로 복사 (Claude Code 전역)
 cp -r korea-apt-alert ~/.claude/skills/
 
 # 또는 프로젝트 스킬로 설치
 cp -r korea-apt-alert .claude/skills/
 ```
 
-설치 후 Claude Code에서 바로 사용:
+### 2단계: 프로필 설정 (선택이지만 강력 권장)
 
+Claude Code에서:
 ```
-/korea-apt-alert                     # 최신 청약 공고 전체 조회
-/korea-apt-alert setup               # 개인 프로필 설정 (맞춤 추천)
-/korea-apt-alert 서울 강남구 아파트     # 지역 + 구/군 필터링
-/korea-apt-alert 내 조건에 맞는 청약    # 프로필 기반 맞춤 조회
-/korea-apt-alert 내 가점 몇 점이야?    # 추정 가점 계산
-/korea-apt-alert 청약이 뭐야?          # 초보 가이드
-/korea-apt-alert --notify             # 조회 후 Slack/Telegram 발송
+/korea-apt-alert setup
 ```
-
-## 개인화 프로필
-
-`/korea-apt-alert setup`으로 프로필을 설정하면 맞춤 추천을 받을 수 있습니다.
-
-| 항목 | 설명 | 용도 |
-|------|------|------|
-| 출생연도 | 만 나이 계산 | 청약 자격 (만 19세+) |
-| 선호 지역 | 복수 선택 | 지역 필터링 |
-| 가구 구성 | 1인/신혼/기혼+자녀 등 | 특별공급 자격 판정 |
-| 무주택 여부 | 무주택/1주택/다주택 | 자격 + 갈아타기 안내 |
-| 청약통장 | 보유 여부 + 가입기간 | APT/LH 자격 + 가점 |
-| 연소득 | 구간 선택 | LH/공공임대 소득 기준 |
-| 선호 평형 | 소형/중형/대형 | 평형 필터링 |
-| 혼인신고일 | 신혼부부 여부 | 신혼부부 특별공급 (7년 이내) |
-| 거주 지역/기간 | 현재 거주지 | 지역민 우대 |
-| 당첨 이력 | 과거 당첨 여부 | 재당첨 제한 확인 |
-| 부양가족 수 | 본인 제외 | 가점제 계산 (최대 35점) |
-
+대화형으로 출생연도·선호 지역·가구 구성·청약통장·연소득 등 12개 항목을 입력합니다.
 프로필은 `~/.config/k-skill/apt-alert-profile.json`에 로컬 저장되며 서버로 전송되지 않습니다.
 
-## 주요 기능
+### 3단계: 조회
 
-- **맞춤 추천**: 프로필 기반 자격 매칭 + 추천 카테고리 자동 판정
-- **가점 추정**: 무주택 기간 + 부양가족 + 통장 기간 → 84점 만점 추정
-- **특별공급 안내**: 신혼부부, 생애최초, 다자녀 자격 추정
-- **1주택 갈아타기**: 유주택자도 가능한 유형 안내
-- **초보 가이드**: 가점제/추첨제/특별공급 등 용어 설명
-- **구/군 필터링**: 서울 강남구, 경기 분당구 등 세부 지역
+```
+/korea-apt-alert                     # 전체 조회
+/korea-apt-alert 내 조건에 맞는 청약    # 프로필 기반 맞춤
+/korea-apt-alert 서울 강남구 대단지만   # 지역 + 구/군 + 필터
+/korea-apt-alert 내 가점 몇 점이야?    # 추정 가점 + 전략 안내
+/korea-apt-alert 청약이 뭐야?          # 초보 가이드
+```
 
-## 알림 설정 (선택)
+### 4단계: 알림 설정 (선택)
 
-Slack 또는 Telegram으로 알림을 받으려면 `~/.config/k-skill/secrets.env`에 추가:
+Slack/Telegram으로 정기 알림을 받으려면 `~/.config/k-skill/secrets.env`에 추가:
 
 ```env
 KSKILL_APT_SLACK_WEBHOOK=https://hooks.slack.com/services/T.../B.../xxx
@@ -80,21 +64,72 @@ KSKILL_APT_TELEGRAM_TOKEN=123456789:ABCdefGHIjklMNOpqrsTUVwxyz
 KSKILL_APT_TELEGRAM_CHAT_ID=-1001234567890
 ```
 
-## 데이터 소스
+### 5단계: 자동 알림 (선택)
 
-| 카테고리 | 데이터 출처 | 업데이트 주기 |
-|----------|------------|--------------|
-| APT 일반분양 | 청약홈 API | 월 25일 배치 |
-| 오피스텔/도시형 | 청약홈 API | 실시간 |
-| LH 공공분양 | LH 공지 API | 실시간 |
-| APT 잔여세대 | 청약홈 API | 실시간 |
-| 공공지원민간임대 | 청약홈 API | 실시간 |
-| 임의공급 | 청약홈 API | 실시간 |
+두 가지 옵션:
+
+**(A) Claude Code `/loop` — 세션 내 반복**
+```
+/loop 24h /korea-apt-alert 내 조건에 맞는 청약 알림 보내줘
+```
+
+**(B) 프록시 notify API — 세션 불필요**
+GitHub Actions·cron 등에서 매일 호출:
+```bash
+curl -X POST "https://k-apt-alert-proxy.onrender.com/v1/apt/notify?webhook_url=...&region=서울,경기,인천&reminder=d3"
+```
+
+## 포함된 기능
+
+### 스킬 (사용자가 설치)
+- [`korea-apt-alert/SKILL.md`](korea-apt-alert/SKILL.md) — 전체 워크플로우, 프로필 스키마, 자격 매칭 로직, 가점 계산, Top 3 추천, D-day, 인접 지역 확장 등
+
+### 프록시 서버 (운영자가 배포)
+- [`proxy/main.py`](proxy/main.py) — FastAPI 엔드포인트
+- [`proxy/crawlers/`](proxy/crawlers/) — 6종 공공데이터포털 API 크롤러
+- [`.github/workflows/warmup.yml`](.github/workflows/warmup.yml) — Render 슬립 방지 cron (12분 간격)
+- [`.github/workflows/test.yml`](.github/workflows/test.yml) — mock 테스트 + E2E CI
+
+### 페르소나 E2E 테스트
+- [`test_personas.py`](test_personas.py) — 8명 시나리오 + mock 테스트 (무주택 기간, 통장 미성년 상한, LH 전국 공고, D-day 정렬)
+
+## 프록시 API
+
+**운영 중**: https://k-apt-alert-proxy.onrender.com
+
+| 엔드포인트 | 설명 |
+|-----------|------|
+| `GET /health` | 서버 상태 확인 (warmup용) |
+| `GET /v1/apt/categories` | 카테고리 6종 목록 |
+| `GET /v1/apt/announcements` | 청약 공고 조회 |
+| `POST /v1/apt/notify` | Slack Webhook 발송 |
+| `GET /v1/apt/cache` | 캐시·일일 호출 카운터 상태 (디버그) |
+
+**쿼리 파라미터** (`/v1/apt/announcements`, `/v1/apt/notify` 공통):
+
+| 파라미터 | 기본값 | 설명 |
+|---------|--------|------|
+| `category` | `all` | `all`, `apt`, `officetell`, `lh`, `remndr`, `pbl_pvt_rent`, `opt` |
+| `active_only` | `true` | 접수 마감 전 공고만 (클라이언트 필터) |
+| `months_back` | `2` | 조회 기간 (1~12개월) |
+| `region` | (전체) | 지역 필터 (쉼표 구분, 예: `서울,경기`) |
+| `district` | (전체) | 세부 지역 필터 (구/군 쉼표 구분) |
+| `min_units` | `0` | 최소 세대수 (대단지만) |
+| `constructor_contains` | (전체) | 시공사 키워드 (쉼표 구분) |
+| `exclude_ids` | (전체) | 제외할 공고 ID (중복 방지) |
+| `reminder` | (없음) | `d3` / `d1` / `winners` / `contract` |
+
+### 데이터 소스
+
+| 카테고리 | 업데이트 | 캐시 TTL |
+|----------|---------|----------|
+| APT 일반분양 | 월 25일 배치 | 60분 |
+| 공공지원민간임대 | 실시간 | 30분 |
+| 오피스텔/도시형, LH, 잔여세대, 임의공급 | 실시간 | 10분 |
 
 ## 프록시 서버 (운영자용)
 
 ### 로컬 실행
-
 ```bash
 cd proxy
 pip install -r requirements.txt
@@ -103,44 +138,42 @@ DATA_GO_KR_API_KEY=your_key uvicorn main:app --reload
 ```
 
 ### Render 배포
-
 1. GitHub에 이 레포를 push
 2. Render Dashboard → New Web Service → Connect repo
-3. Environment Variable에 `DATA_GO_KR_API_KEY` 추가
+3. Environment Variable 등록:
+   - `DATA_GO_KR_API_KEY` (필수) — [공공데이터포털](https://www.data.go.kr/) 무료 발급
+   - `SENTRY_DSN` (선택) — 에러 모니터링
 
-`DATA_GO_KR_API_KEY`는 [공공데이터포털](https://www.data.go.kr/)에서 무료 발급 가능합니다.
+### 운영 보호 장치
+- **병렬 fetch**: 6개 카테고리 동시 크롤링 (ThreadPoolExecutor)
+- **카테고리별 TTL**: apt 60분 / pbl_pvt_rent 30분 / 나머지 10분
+- **Stale fallback**: fetch 실패 시 만료된 캐시라도 반환 (가용성 우선)
+- **일일 rate limit**: 9000건 초과 시 stale 캐시만 반환
+- **12분 간격 warmup**: Render free tier 슬립 방지
 
-## 프록시 API
+## 보안·프라이버시
 
-| 엔드포인트 | 설명 |
-|-----------|------|
-| `GET /health` | 서버 상태 확인 |
-| `GET /v1/apt/announcements` | 청약 공고 조회 |
-| `GET /v1/apt/categories` | 카테고리 목록 |
-
-**쿼리 파라미터** (`/v1/apt/announcements`):
-
-| 파라미터 | 기본값 | 설명 |
-|---------|--------|------|
-| `category` | `all` | `all`, `apt`, `officetell`, `lh`, `remndr`, `pbl_pvt_rent`, `opt` |
-| `active_only` | `true` | 접수 마감 전 공고만 |
-| `months_back` | `2` | 조회 기간 (1~12개월) |
-| `region` | (전체) | 지역 필터 (쉼표 구분, 예: `서울,경기,인천`) |
-| `district` | (전체) | 세부 지역 필터 (구/군, 쉼표 구분, 예: `강남구,서초구`) |
+- 프로필은 로컬 파일(`~/.config/k-skill/*.json`)에 저장되며 **프록시·서버로 전송되지 않습니다**.
+- 프록시 요청에는 지역·평형·카테고리·세대수·시공사 키워드만 포함됩니다 (개인정보 미포함).
+- Unix/macOS는 `chmod 600`이 자동 설정됩니다.
+- 프로필 삭제: `/korea-apt-alert profile --delete` 또는 파일 직접 삭제.
 
 ## FAQ
 
 **Q. 프록시 서버가 응답하지 않아요**
-A. Render free tier는 15분 비활성 시 슬립합니다. 첫 요청에 30초~1분 걸릴 수 있습니다.
+A. Render free tier는 15분 비활성 시 슬립합니다. warmup cron이 12분 간격으로 핑을 보내지만, 자정~새벽 등은 슬립 상태일 수 있습니다. 첫 호출이 30초~2분 걸릴 수 있습니다.
 
 **Q. 가점 계산이 정확한가요?**
-A. 프로필 기반 추정치입니다. 정확한 가점은 [청약홈](https://www.applyhome.co.kr)에서 조회하세요.
+A. 프로필 기반 추정치입니다. 만 30세 ↔ 혼인신고일 중 늦은 해 기산, 통장 미성년 가입분 최대 2년 인정 등 주요 규칙은 반영되어 있지만, 부양가족 직계존속 3년 동일 세대 등록 요건은 자동 확인이 불가합니다. 정확한 가점은 [청약홈](https://www.applyhome.co.kr)에서 조회하세요.
 
 **Q. 1주택자도 사용할 수 있나요?**
-A. 네. 오피스텔, 잔여세대, 임의공급은 무주택 불문이며, 갈아타기 관련 안내도 제공합니다.
+A. 네. 오피스텔, 잔여세대, 임의공급은 무주택 불문이며, "갈아타기 안내"가 자동 제공됩니다.
 
 **Q. LH 공고의 지역이 "전국"으로 나와요**
-A. LH 공고 제목에서 특정 지역을 추론할 수 없는 경우 "전국"으로 표시됩니다. 지역 필터 시 "전국" 공고는 항상 포함됩니다.
+A. LH 공고 제목에서 특정 지역을 추론할 수 없는 경우 "전국"으로 표시되며, 모든 프로필 지역 필터에서 항상 통과됩니다.
+
+**Q. 매칭 공고가 0건이에요**
+A. 프로필 지역이 좁은 경우 인접 지역(17개 매핑) 확장 제안을 받습니다. 예: 광주 → 전남·전북, 강원 → 충북.
 
 ## License
 
