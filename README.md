@@ -1,24 +1,25 @@
 # korea-apt-alert
 
-> 한국 청약 공고를 개인 프로필 기반으로 조회·분석하고 Slack/Telegram으로 알림받는 Claude Code 스킬.
+> 한국 청약 공고를 개인 프로필 기반으로 조회·분석하고 Slack/Telegram으로 알림받는 Agent Skill. **Claude Code · OpenAI Codex 둘 다 지원.**
 
-- **무엇인가**: 청약홈·LH 등 **6개 공공 API를 통합 조회**하는 Claude Code 스킬. 대화창에 "내 조건에 맞는 청약 알려줘"라고 쓰면 바로 답합니다.
+- **무엇인가**: 청약홈·LH 등 **6개 공공 API를 통합 조회**하는 Agent Skill. Claude Code 또는 Codex CLI 대화창에 "내 조건에 맞는 청약 알려줘"라고 쓰면 바로 답합니다.
 - **누가 쓰나**: 청약 준비 중인 개인(자격·가점 확인용), 부동산 관련 정보를 자동화하고 싶은 개발자
 - **얼마나 걸리나**: 설치 2분, 프로필 설정 3분, 첫 조회 5초(캐시 히트 기준)
 
-## Claude Code가 처음이신가요?
+## 지원 런타임 — Claude Code 또는 Codex CLI
 
-이 스킬은 Anthropic의 [Claude Code CLI](https://claude.com/claude-code) 위에서 동작합니다. Claude Code는 터미널에서 Claude와 대화하며 코드·문서·외부 API를 다룰 수 있는 공식 도구입니다.
-- 설치 가이드: [claude.com/docs/claude-code](https://docs.claude.com/en/docs/claude-code/overview)
-- macOS / Linux / Windows (WSL 또는 PowerShell) 지원
+이 스킬은 YAML frontmatter + Markdown 기반 Agent Skill 표준을 따르므로 **두 런타임에서 동일하게 동작**합니다.
 
-Claude Code 설치 후, 아래 "처음 시작하는 순서"를 따라오세요.
+- **Anthropic Claude Code**: [claude.com/claude-code](https://claude.com/claude-code) · [docs](https://docs.claude.com/en/docs/claude-code/overview)
+- **OpenAI Codex CLI**: [developers.openai.com/codex](https://developers.openai.com/codex) · [Skills 문서](https://developers.openai.com/codex/skills)
+
+둘 다 macOS / Linux / Windows (PowerShell 또는 WSL) 지원. 설치 위치만 다르고 SKILL.md는 동일합니다.
 
 ## Prerequisites
 
 | 항목 | 필요 여부 | 비고 |
 |------|-----------|------|
-| [Claude Code CLI](https://claude.com/claude-code) | **필수** | 본 스킬이 동작하는 런타임 |
+| Claude Code **또는** Codex CLI | **둘 중 하나 필수** | 본 스킬이 동작하는 런타임 |
 | 운영체제 | macOS / Linux / Windows 10+ | Windows는 PowerShell 또는 WSL |
 | Python·Node 등 런타임 | ❌ 불필요 | 스킬 동작에는 필요 없음 (프록시 자체 호스팅 시에만 Python 3.11+) |
 | 공공데이터포털 API 키 | ❌ 불필요 | 공용 프록시가 관리 |
@@ -57,18 +58,20 @@ git clone https://github.com/tkddnjs-dlqslek/k-apt-alert.git
 cd k-apt-alert
 ```
 
-**macOS / Linux / WSL**:
+사용 중인 런타임에 맞게 설치하세요. **둘 다 설치해도 OK** (Claude Code·Codex 모두에서 사용 가능).
+
+#### A) Claude Code — macOS / Linux / WSL
 ```bash
-# 개인 스킬 디렉토리 (Claude Code 전역)
+# 개인 스킬 디렉토리 (전역)
 mkdir -p ~/.claude/skills && cp -r korea-apt-alert ~/.claude/skills/
 
 # 또는 현재 프로젝트 한정
 mkdir -p .claude/skills && cp -r korea-apt-alert .claude/skills/
 ```
 
-**Windows PowerShell**:
+#### A) Claude Code — Windows PowerShell
 ```powershell
-# 개인 스킬 디렉토리 (Claude Code 전역)
+# 개인 스킬 디렉토리 (전역)
 $dst = "$env:USERPROFILE\.claude\skills"
 New-Item -ItemType Directory -Force -Path $dst | Out-Null
 Copy-Item -Recurse -Force korea-apt-alert $dst
@@ -78,11 +81,43 @@ New-Item -ItemType Directory -Force -Path ".claude\skills" | Out-Null
 Copy-Item -Recurse -Force korea-apt-alert ".claude\skills"
 ```
 
-**설치 검증**: Claude Code를 재시작하고 대화창에서 아래 명령이 동작하면 성공입니다.
+#### B) Codex CLI — macOS / Linux / WSL
+```bash
+# 개인 스킬 디렉토리 (전역)
+mkdir -p ~/.agents/skills && cp -r korea-apt-alert ~/.agents/skills/
+
+# 또는 현재 프로젝트 한정
+mkdir -p .agents/skills && cp -r korea-apt-alert .agents/skills/
+```
+
+#### B) Codex CLI — Windows PowerShell
+```powershell
+# 개인 스킬 디렉토리 (전역)
+$dst = "$env:USERPROFILE\.agents\skills"
+New-Item -ItemType Directory -Force -Path $dst | Out-Null
+Copy-Item -Recurse -Force korea-apt-alert $dst
+
+# 또는 현재 프로젝트 한정
+New-Item -ItemType Directory -Force -Path ".agents\skills" | Out-Null
+Copy-Item -Recurse -Force korea-apt-alert ".agents\skills"
+```
+
+#### C) 둘 다 사용 — Unix 심볼릭 링크 (선택)
+파일 1벌만 유지하려면:
+```bash
+# Claude Code 경로에 실제 설치
+mkdir -p ~/.claude/skills && cp -r korea-apt-alert ~/.claude/skills/
+# Codex는 그 위치를 심볼릭 링크
+mkdir -p ~/.agents/skills && ln -s ~/.claude/skills/korea-apt-alert ~/.agents/skills/korea-apt-alert
+```
+
+### 설치 검증
+
+런타임을 재시작하고 대화창에서 아래 명령이 동작하면 성공입니다.
 ```
 /korea-apt-alert 청약이 뭐야?
 ```
-→ 초보 가이드·핵심 용어 사전이 응답으로 나오면 스킬이 정상 로드된 것입니다.
+→ 초보 가이드·핵심 용어 사전이 응답으로 나오면 스킬이 정상 로드된 것입니다. Claude Code와 Codex 모두 동일한 결과가 나와야 합니다.
 
 ### 2단계: 프로필 설정 (선택이지만 강력 권장)
 
