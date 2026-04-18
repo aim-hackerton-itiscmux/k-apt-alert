@@ -32,9 +32,9 @@ HTTP_TIMEOUT = 10
 
 # 정규식 폴백 패턴 — HTML 구조 변경에도 견고
 _PATTERNS = {
-    "rcept_begin_end": re.compile(
-        r"청약\s*접수[^\d]*(\d{4}-\d{2}-\d{2})\s*~\s*(\d{4}-\d{2}-\d{2})",
-    ),
+    "rcept_section": re.compile(r"청약\s*접수"),
+    "date_range": re.compile(r"(\d{4}-\d{2}-\d{2})\s*~\s*(\d{4}-\d{2}-\d{2})"),
+    "date_single": re.compile(r"(\d{4}-\d{2}-\d{2})"),
     "notice_date": re.compile(
         r"(?:모집)?\s*공고일[^\d]*(\d{4}-\d{2}-\d{2})",
     ),
@@ -42,9 +42,45 @@ _PATTERNS = {
         r"당첨자\s*발표일?[^\d]*(\d{4}-\d{2}-\d{2})",
     ),
     "contract_start_end": re.compile(
-        r"계약(?:일|기간)[^\d]*(\d{4}-\d{2}-\d{2})(?:\s*~\s*(\d{4}-\d{2}-\d{2}))?",
+        r"계약(?:일|기간|체결)[^\d]*(\d{4}-\d{2}-\d{2})(?:\s*~\s*(\d{4}-\d{2}-\d{2}))?",
     ),
 }
+
+
+_SECTION_TERMINATORS = re.compile(r"당첨자\s*발표|계약(?:일|기간|체결)|입주")
+
+
+def _extract_rcept_dates(text: str) -> tuple[str, str]:
+    """'청약접수' 섹션에서 접수 시작/종료일만 추출.
+
+    섹션 경계: '청약접수' ~ 다음 주요 이벤트 키워드(당첨자 발표·계약·입주) 직전.
+    짧은 페이지에서 계약일이 섞여 들어가는 문제 방지.
+
+    케이스 커버:
+    - "2026-04-15 ~ 2026-04-20" (범위 표기)
+    - "특별공급 2026-04-15 / 1순위 2026-04-16 / 2순위 2026-04-17" (나열)
+    - "2026-04-27" (단일 날짜)
+    """
+    m = _PATTERNS["rcept_section"].search(text)
+    if not m:
+        return "", ""
+    section = text[m.end():]
+    # 다음 주요 이벤트(발표·계약·입주) 전까지만
+    term = _SECTION_TERMINATORS.search(section)
+    if term:
+        section = section[:term.start()]
+    section = section[:800]  # 안전 상한
+
+    # 범위 표기 우선
+    rm = _PATTERNS["date_range"].search(section)
+    if rm:
+        return rm.group(1), rm.group(2)
+
+    # 단일 날짜 나열 — 첫 날짜 ~ 마지막 날짜
+    dates = _PATTERNS["date_single"].findall(section)
+    if not dates:
+        return "", ""
+    return dates[0], dates[-1]
 
 
 def _parse_html(html: str) -> dict:
@@ -65,11 +101,11 @@ def _parse_html(html: str) -> dict:
         "contract_end": "",
     }
 
-    m = _PATTERNS["rcept_begin_end"].search(text)
-    if m:
-        result["rcept_bgn"] = m.group(1).replace("-", "")
-        result["rcept_end"] = m.group(2).replace("-", "")
-        result["period"] = f"{m.group(1)} ~ {m.group(2)}"
+    bgn_str, end_str = _extract_rcept_dates(text)
+    if bgn_str:
+        result["rcept_bgn"] = bgn_str.replace("-", "")
+        result["rcept_end"] = end_str.replace("-", "")
+        result["period"] = f"{bgn_str} ~ {end_str}" if end_str != bgn_str else bgn_str
 
     m = _PATTERNS["notice_date"].search(text)
     if m:
