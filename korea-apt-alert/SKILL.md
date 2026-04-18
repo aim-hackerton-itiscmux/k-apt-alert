@@ -5,7 +5,7 @@ license: MIT
 metadata:
   category: real-estate
   locale: ko-KR
-  phase: v2.4
+  phase: v2.5
   homepage: https://github.com/tkddnjs-dlqslek/k-apt-alert
   k_skill_family: NomaDamas/k-skill
 ---
@@ -841,8 +841,12 @@ curl -s --max-time 180 "https://k-apt-alert-proxy.onrender.com/v1/apt/announceme
       "region": "서울",
       "district": "서초구",
       "address": "서울특별시 서초구 ...",
-      "period": "20260415 ~ 20260420",
+      "period": "2026-04-15 ~ 2026-04-20",
       "rcept_end": "20260420",
+      "notice_date": "2026-04-10",
+      "winner_date": "2026-04-27",
+      "contract_start": "2026-05-11",
+      "contract_end": "2026-05-13",
       "total_units": "641",
       "house_type": "민영",
       "constructor": "삼성물산(주)",
@@ -850,11 +854,22 @@ curl -s --max-time 180 "https://k-apt-alert-proxy.onrender.com/v1/apt/announceme
       "speculative_zone": "Y",
       "price_controlled": "N",
       "house_category": "APT",
-      "size": "중형/대형"
+      "size": "중형/대형",
+      "schedule_source": "api"
     }
   ]
 }
 ```
+
+**`schedule_source` 필드 (v2.5 신규):**
+- `"api"` — 공공데이터포털 API 응답에서 바로 얻은 일정 (APT 일반분양 대부분)
+- `"html_scraped"` — 청약홈 공고 상세 페이지 HTML 파싱으로 보강 (오피스텔·잔여세대 등 API 누락분)
+- `"unavailable"` — 두 경로 모두 실패, 일정 미확인 (원문 URL 직접 확인 필요)
+
+**관련 필드 (html_scraped 시 추가 제공):**
+- `notice_date` — 모집공고일
+- `winner_date` — 당첨자 발표일 (reminder=winners 기반)
+- `contract_start`, `contract_end` — 계약 체결 기간 (reminder=contract 기반)
 
 ### 2단계: 프로필 기반 분석
 

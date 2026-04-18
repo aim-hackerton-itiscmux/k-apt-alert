@@ -18,6 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from config import DATA_GO_KR_API_KEY
 from crawlers import applyhome, officetell, lh, remndr, pbl_pvt_rent, opt
+from crawlers.applyhome_page import enrich_schedules, cache_status as enrich_cache_status
 
 SENTRY_DSN = os.environ.get("SENTRY_DSN", "")
 if SENTRY_DSN:
@@ -221,12 +222,23 @@ def _fetch_and_filter(category, active_only, months_back, region_filter, distric
                 logger.error(f"[{label}] crawl failed: {e}")
                 errors.append(f"{label}: {str(e)}")
 
-    unique = []
-    for ann in _dedup_announcements(announcements):
+    deduped = _dedup_announcements(announcements)
+
+    # 지역·구군 필터 (enrichment 전 선처리로 fetch 수 최소화)
+    filtered = []
+    for ann in deduped:
         if region_filter and ann.get("region") not in region_filter and ann.get("region") != "전국":
             continue
         if district_filter and ann.get("district") and ann.get("district") not in district_filter:
             continue
+        filtered.append(ann)
+
+    # rcept_end 공란 공고에 대해 청약홈 HTML 파싱으로 일정 보강
+    filtered = enrich_schedules(filtered)
+
+    # D-day 계산 + active_only 필터
+    unique = []
+    for ann in filtered:
         ann = _add_d_day(ann)
         if active_only and not _is_active(ann):
             continue
@@ -460,7 +472,12 @@ def cache_status():
         ]
     with _rate_lock:
         rate = {"date": _rate_counter["date"], "count": _rate_counter["count"], "limit": DAILY_CALL_LIMIT}
-    return {"entries": entries, "ttl_seconds": CACHE_TTL_SECONDS, "rate_limit": rate}
+    return {
+        "entries": entries,
+        "ttl_seconds": CACHE_TTL_SECONDS,
+        "rate_limit": rate,
+        "schedule_enrichment": enrich_cache_status(),
+    }
 
 
 @app.get("/v1/apt/categories")
