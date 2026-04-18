@@ -1,14 +1,26 @@
-name: Render warmup
+name: Render warmup + data prefetch
 
 on:
   schedule:
-    - cron: "*/12 * * * *"  # 12분 간격 (Render free tier 15분 슬립 임계 이전)
+    # 12분 간격 — Render free tier 15분 슬립 임계 이전
+    # + 짧은 TTL(10분) 카테고리 캐시도 만료 직전 갱신
+    - cron: "*/12 * * * *"
   workflow_dispatch:
 
 jobs:
-  ping:
+  warmup:
     runs-on: ubuntu-latest
     steps:
-      - name: Ping /health
+      - name: Ping /health (Render wake)
         run: |
-          curl -sS --max-time 45 "https://k-apt-alert-proxy.onrender.com/health" || echo "ping failed (ok to retry)"
+          curl -sS --max-time 30 "https://k-apt-alert-proxy.onrender.com/health" || echo "health ping failed"
+
+      - name: Prefetch all 8 categories (keep cache warm)
+        run: |
+          # category=all은 ThreadPoolExecutor로 8개 카테고리 병렬 fetch
+          # 이미 warm한 카테고리는 캐시 hit, 만료된 것만 재크롤링
+          curl -sS --max-time 180 \
+            "https://k-apt-alert-proxy.onrender.com/v1/apt/announcements?category=all&active_only=false" \
+            -o /dev/null \
+            -w "HTTP %{http_code}, %{time_total}s, %{size_download} bytes\n" \
+            || echo "prefetch failed (ok to retry next cycle)"
