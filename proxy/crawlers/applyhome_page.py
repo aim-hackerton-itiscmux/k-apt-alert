@@ -123,11 +123,12 @@ def enrich_schedules(announcements: list[dict]) -> list[dict]:
     targets = []
     for ann in announcements:
         if ann.get("rcept_end"):
-            ann["schedule_source"] = "api"
+            # 이미 source 태그 있으면 유지 (캐시된 html_scraped 결과 덮어쓰기 방지)
+            ann.setdefault("schedule_source", "api")
             continue
         url = ann.get("url", "")
         if not url or "applyhome.co.kr" not in url:
-            ann["schedule_source"] = "unavailable"
+            ann.setdefault("schedule_source", "unavailable")
             continue
         targets.append(ann)
 
