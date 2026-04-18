@@ -725,37 +725,61 @@ KSKILL_APT_TELEGRAM_TOKEN=123456789:ABCdefGHIjklMNOpqrsTUVwxyz
 KSKILL_APT_TELEGRAM_CHAT_ID=-1001234567890
 ```
 
-### 웹훅 자동 저장 (권장)
+### 웹훅·토큰 자동 저장 (필수 규칙)
 
-사용자가 채팅창에 Slack Webhook URL이나 Telegram Token을 그대로 붙여넣으면 Claude가 **자동으로 secrets.env에 저장**한다.
+사용자가 채팅창에 Slack Webhook URL 또는 Telegram Bot Token/Chat ID를 그대로 붙여넣으면 Claude는 **무조건 자동 감지하여 secrets.env에 저장**한다. "직접 파일에 넣으세요" 같은 수동 안내는 **금지**.
 
-**패턴 감지:**
-- `https://hooks.slack.com/services/...` → `KSKILL_APT_SLACK_WEBHOOK`
-- `숫자:알파벳` 형태의 Bot Token (예: `123456789:ABCdef...`) → `KSKILL_APT_TELEGRAM_TOKEN` + chat_id 추가 질문
-- `-100` 또는 숫자만 있는 chat_id → `KSKILL_APT_TELEGRAM_CHAT_ID`
+**패턴 감지 (최우선 적용):**
+| 패턴 | 저장 키 | 후속 동작 |
+|------|--------|----------|
+| `https://hooks.slack.com/services/...` | `KSKILL_APT_SLACK_WEBHOOK` | 확인 후 저장 종료 |
+| `\d{8,10}:[A-Za-z0-9_-]{30,}` (Bot Token 형식) | `KSKILL_APT_TELEGRAM_TOKEN` | **즉시 chat_id 추가 질문** |
+| `-100\d{10}` 또는 단독 숫자 ID | `KSKILL_APT_TELEGRAM_CHAT_ID` | 확인 후 저장 종료 |
 
-**동작 순서:**
-1. URL/토큰 감지 → 사용자에게 확인: "이 Slack Webhook을 `~/.config/k-skill/secrets.env`에 저장할까요? (yes/no)"
-2. yes → 기존 `secrets.env` 있으면 해당 키만 덮어쓰기 (다른 키 유지), 없으면 새로 생성
-3. 저장 후 `chmod 600` 자동 실행 (Unix 계열)
-4. 확인 메시지: "✅ 저장 완료. 이제 '알림 보내줘'로 Slack 발송 가능합니다."
+**동작 순서 (모든 패턴 공통):**
+1. 패턴 감지 → 어떤 종류인지 한 줄로 알림: `Slack Webhook 감지` / `Telegram Bot Token 감지` / `Telegram Chat ID 감지`
+2. 확인 질문: "이걸 `~/.config/k-skill/secrets.env`에 저장할까요? (yes/no)"
+3. yes → 기존 `secrets.env`의 **해당 키만** 덮어쓰기 (다른 키 보존), 없으면 새로 생성
+4. 저장 후 `chmod 600` 자동 실행 (Unix 계열, Windows는 스킵)
+5. 저장 완료 메시지 + **후속 동작 유도**:
+   - Slack → "✅ 저장 완료. 이제 '알림 보내줘'로 Slack 발송 가능합니다."
+   - Telegram Bot Token → "✅ 토큰 저장됨. 이제 **Chat ID도 알려주세요** (예: `-1001234567890`, 숫자 그대로 붙여넣기 OK)"
+   - Telegram Chat ID → "✅ Chat ID 저장됨. Token도 저장돼 있다면 '알림 보내줘'로 Telegram 발송 가능합니다."
 
 **자동 저장 예시 (Bash):**
 ```bash
 # 기존 라인 제거 후 새 값 추가 (key-safe)
-KEY="KSKILL_APT_SLACK_WEBHOOK"
-VAL="https://hooks.slack.com/services/T.../B.../xxx"
-FILE="$HOME/.config/k-skill/secrets.env"
-mkdir -p "$(dirname "$FILE")"
-touch "$FILE"
-grep -v "^${KEY}=" "$FILE" > "$FILE.tmp" && mv "$FILE.tmp" "$FILE"
-echo "${KEY}=${VAL}" >> "$FILE"
-chmod 600 "$FILE" 2>/dev/null || true
+save_secret() {
+  local KEY="$1"
+  local VAL="$2"
+  local FILE="$HOME/.config/k-skill/secrets.env"
+  mkdir -p "$(dirname "$FILE")"
+  touch "$FILE"
+  grep -v "^${KEY}=" "$FILE" > "$FILE.tmp" 2>/dev/null && mv "$FILE.tmp" "$FILE" || true
+  echo "${KEY}=${VAL}" >> "$FILE"
+  chmod 600 "$FILE" 2>/dev/null || true
+}
+
+# Slack
+save_secret "KSKILL_APT_SLACK_WEBHOOK" "https://hooks.slack.com/services/T.../B.../xxx"
+
+# Telegram (2개 키 세트)
+save_secret "KSKILL_APT_TELEGRAM_TOKEN" "123456789:ABCdef..."
+save_secret "KSKILL_APT_TELEGRAM_CHAT_ID" "-1001234567890"
 ```
 
-Windows는 `%USERPROFILE%\.config\k-skill\secrets.env` 경로이며 PowerShell 등가 명령으로 처리.
+**Windows PowerShell 등가 명령:**
+```powershell
+$FILE = "$env:USERPROFILE\.config\k-skill\secrets.env"
+New-Item -ItemType Directory -Force -Path (Split-Path $FILE) | Out-Null
+if (!(Test-Path $FILE)) { New-Item -ItemType File -Path $FILE | Out-Null }
+(Get-Content $FILE | Where-Object { $_ -notmatch "^KSKILL_APT_SLACK_WEBHOOK=" }) + "KSKILL_APT_SLACK_WEBHOOK=https://hooks.slack.com/services/T.../B.../xxx" | Set-Content $FILE
+```
 
-**Telegram의 경우**: 토큰 저장 후 chat_id도 필요하므로 "Telegram Chat ID도 알려주세요 (예: -1001234567890)"라고 이어서 질문.
+**금지 사항:**
+- 사용자가 직접 파일 편집하라고 안내하는 것 (❌ "secrets.env를 수동으로 편집하세요")
+- 패턴 감지했는데 저장하지 않고 설명만 하는 것
+- Chat ID 없이 Telegram Token만 저장하고 끝내기 (반드시 이어서 chat_id 요청)
 
 ## 조회 가능한 카테고리
 
@@ -921,47 +945,41 @@ curl -s --max-time 180 "https://k-apt-alert-proxy.onrender.com/v1/apt/announceme
 
 사용자가 "알림 보내줘", "Slack으로 보내줘", `--notify` 등을 요청한 경우에만 실행한다.
 
-> ⚠️ **기본은 1회성 발송입니다.** 매일 자동 발송을 원하면 "자동 조회 및 알림 설정" 섹션의 3가지 방법 중 하나를 설정해야 한다. 사용자가 "매일", "자동", "정기" 등을 언급하지 않으면 지금 이 순간만 발송하고 종료.
+> 🚨 **기본값 자동 선택 금지 — 주기·필터 둘 다 반드시 사용자에게 물어본다.**
+> 어떤 알림 요청이든(필터 지정 여부 무관) 아래 STEP 1·2를 순서대로 강제 진행한다. 묻지 않고 바로 발송하는 경로는 존재하지 않는다.
 
-#### 발송 전 대화 흐름 (필수 규칙)
+#### 발송 전 필수 3단계 대화 (절대 규칙)
 
-사용자 요청에 **필터 정보가 포함됐는지** 판단해 두 가지 경로로 분기한다.
+**STEP 1. 발송 주기 선택 (필수)**
 
-**경로 A — 필터 지정 요청** (예: "서울 대단지만 알림", "LH 공공분양 D-3 알림")
-
-1. 요청된 필터로 **먼저 발송을 수행**한다
-2. 발송 직후 아래 **8개 필터 표 전체를 반드시 출력**하고 재질문:
+알림 요청을 받자마자 **다른 어떤 동작보다 먼저** 아래 표를 출력하고 주기를 묻는다:
 
 ```
-✅ 발송 완료 ({지정한 조건} 기준, N건).
+📢 알림 발송 — 먼저 발송 주기를 선택해주세요:
 
-더 세밀하게 필터링하고 싶으신가요? 아래 8개 필터를 조합할 수 있습니다:
+| # | 방식 | 설명 | 요구 조건 |
+|---|------|------|----------|
+| 1 | 🔂 1회성 | 지금 이 순간 한 번만 발송 | 없음 |
+| 2 | 🔁 /loop (세션) | Claude Code 세션 동안 N시간마다 반복 | 세션 계속 열어둠 |
+| 3 | 🗓️ GitHub Actions | 매일 지정 시각 자동 발송 (가장 견고) | GitHub 레포 + Secrets 설정 |
+| 4 | 💻 로컬 스케줄러 | cron / Task Scheduler로 로컬 자동 | 로컬 PC 상시 켜둠 |
 
-| # | 파라미터 | 현재값 | 설명 |
-|---|---------|-------|------|
-| 1 | category | {현재} | apt / officetell / lh / remndr / pbl_pvt_rent / opt / all |
-| 2 | region | {현재} | 서울·경기·인천 등 17개 광역 (쉼표 복수) |
-| 3 | district | {현재} | 강남구·서초구 등 세부 구/군 |
-| 4 | min_units | {현재} | 최소 세대수 (대단지만, 예: 500) |
-| 5 | constructor_contains | {현재} | 시공사 키워드 (삼성·현대·GS 등) |
-| 6 | active_only | {현재} | 접수 중인 공고만 (true/false) |
-| 7 | reminder | {현재} | d3·d1·winners·contract (마감/발표/계약 리마인더) |
-| 8 | exclude_ids | {현재} | 중복 방지용 제외 공고 ID |
-
-추가/수정할 필터 있으면 말씀해주세요. 그대로 두려면 "완료".
+1~4 중 어떤 방식 원하시나요?
 ```
 
-**경로 B — 필터 없이 "알림 보내줘"만 말한 경우**
+사용자가 숫자나 키워드("1회", "매일 자동" 등)로 명확히 답할 때까지 **대기**한다. 애매하거나 답이 없으면 이 표를 **다시** 출력한다. 절대 "기본 1회성"으로 임의 판단해서 넘어가지 않는다.
 
-발송하기 전에 **먼저 8개 필터 표를 보여주고** 사용자 선택을 받는다:
+**STEP 2. 필터 확인 (필수)**
+
+주기가 결정되면 **8개 필터 표를 반드시 보여주고** 사용자가 원하는 조건을 선택하게 한다:
 
 ```
-📢 알림 발송 설정 — 어떤 조건으로 보낼까요?
+📢 알림 조건 — 아래 필터 중 원하는 것만 조정하세요:
 
-| # | 파라미터 | 기본값 (프로필 기반) | 설명 |
-|---|---------|-----------------|------|
-| 1 | category | all | apt / officetell / lh / remndr / pbl_pvt_rent / opt / all |
-| 2 | region | {프로필.regions} | 서울·경기·인천 등 17개 광역 (쉼표 복수) |
+| # | 파라미터 | 현재값 / 기본 | 설명 |
+|---|---------|------------|------|
+| 1 | category | {초기값} | apt / officetell / lh / remndr / pbl_pvt_rent / opt / all |
+| 2 | region | {프로필.regions or all} | 서울·경기·인천 등 17개 광역 (쉼표 복수) |
 | 3 | district | (전체) | 강남구·서초구 등 세부 구/군 |
 | 4 | min_units | 0 | 최소 세대수 (대단지만, 예: 500) |
 | 5 | constructor_contains | (전체) | 시공사 키워드 (삼성·현대·GS 등) |
@@ -969,16 +987,31 @@ curl -s --max-time 180 "https://k-apt-alert-proxy.onrender.com/v1/apt/announceme
 | 7 | reminder | (없음) | d3·d1·winners·contract |
 | 8 | exclude_ids | (없음) | 중복 방지용 제외 공고 ID |
 
-⚙️ 원하는 조건을 말씀해주세요. 예: "서울·경기 500세대 이상 D-3"
-💡 또는 "프로필대로 보내줘"라고 하시면 위 기본값 그대로 발송합니다.
+원하는 조건을 말씀해주세요.
+• 예: "서울·경기 500세대 이상 D-3"
+• 또는 "프로필대로" / "기본값" 이라고 하면 현재값 그대로 사용
 ```
 
-사용자가 "프로필대로" / "그대로" / "기본값" 등 확정 의사 표현을 하면 기본값으로 즉시 발송. 수정 요청 있으면 반영 후 재확인 → 발송.
+사용자 메시지에 이미 필터가 포함된 경우("서울 대단지만 알림")에도 위 표는 반드시 출력하되, **해당 필터는 "현재값"에 반영**해서 보여준다. 사용자가 더 조정하거나 "이대로"/"확정" 하면 STEP 3로.
 
-#### 필수 준수 사항
-- 경로 A·B 모두에서 **8개 필터 표는 생략 금지**
-- 필터 표는 위 마크다운 포맷 그대로 출력 (파라미터명 영문·8행 유지)
-- "현재값" 열에는 실제 사용된/기본값을 표기 (공백 X)
+**STEP 3. 실행 (주기별 분기)**
+
+| STEP 1 선택 | STEP 3 실행 내용 |
+|-------------|----------------|
+| 1. 🔂 1회성 | `POST /v1/apt/notify?<filters>` 즉시 호출 → 결과 보고 |
+| 2. 🔁 /loop | `/loop 24h /korea-apt-alert <조건> 알림` 한 줄 안내만, 사용자가 복붙 실행 |
+| 3. 🗓️ GitHub Actions | `.github/workflows/apt-notify.yml` 예시 yaml 출력 + 필요 Secrets(`SLACK_WEBHOOK`, `PROXY_URL`) 등록 안내 |
+| 4. 💻 로컬 스케줄러 | macOS/Linux `crontab -e` 라인 OR Windows PowerShell Task Scheduler 등록 명령 출력 |
+
+2~4번은 Claude가 **직접 발송하지 않고 스크립트/설정만 제공**한다. 사용자가 등록 후 "완료" 응답하면 마무리.
+
+#### 절대 규칙 요약
+
+- STEP 1·2 **생략 절대 금지** — 주기·필터 둘 다 묻지 않고 바로 발송하는 경로는 **없음**
+- "기본 1회성"으로 자동 추정 **금지**, 반드시 사용자 명시 선택
+- 사용자가 "그냥 보내줘" 같이 애매하게 말해도 **STEP 1 표부터 다시** 보여주기
+- 필터 표는 마크다운 그대로 (파라미터명 영문·8행 유지, "현재값" 공백 X)
+
 
 **Slack 발송:**
 ```bash
