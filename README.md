@@ -143,9 +143,10 @@ KSKILL_APT_TELEGRAM_CHAT_ID=-1001234567890
 
 **(B) 프록시 notify API — 세션 불필요, 가장 안정적**
 
-GitHub Actions·cron 등에서 매일 호출:
+GitHub Actions·cron 등에서 매일 호출 (한글 파라미터는 반드시 퍼센트 인코딩):
 ```bash
-curl -X POST "https://k-apt-alert-proxy.onrender.com/v1/apt/notify?webhook_url=...&region=서울,경기,인천&reminder=d3"
+# region=서울,경기,인천 → 퍼센트 인코딩
+curl -X POST "https://k-apt-alert-proxy.onrender.com/v1/apt/notify?webhook_url=...&region=%EC%84%9C%EC%9A%B8,%EA%B2%BD%EA%B8%B0,%EC%9D%B8%EC%B2%9C&reminder=d3"
 ```
 
 📘 **자동화 전체 가이드**: [`examples/user-automation/`](./examples/user-automation/) — 본인 GitHub 계정에 **빈 repo 1개 + yaml 파일 1개**만 올리면 매일 오전 7시(KST) 자동 발송 (Fork 불필요, 5분 셋업)
@@ -214,7 +215,7 @@ curl -X POST "https://k-apt-alert-proxy.onrender.com/v1/apt/notify?webhook_url=.
 ## 포함된 기능
 
 ### 스킬 (사용자가 설치)
-- [`korea-apt-alert/SKILL.md`](korea-apt-alert/SKILL.md) — 전체 워크플로우, 프로필 스키마, 자격 매칭 로직, 가점 계산, Top 3 추천, D-day, 인접 지역 확장 등
+- [`SKILL.md`](SKILL.md) — 전체 워크플로우, 프로필 스키마, 자격 매칭 로직, 가점 계산, Top 3 추천, D-day, 인접 지역 확장 등
 
 ### 프록시 서버 (운영자가 배포)
 - [`proxy/main.py`](proxy/main.py) — FastAPI 엔드포인트
