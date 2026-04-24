@@ -47,8 +47,15 @@ metadata:
 **URL 형식**
 - URL 전체를 반드시 큰따옴표 `"..."`로 감싸 단일 스트링으로 전달
 - 여러 커맨드를 `&&`로 체이닝하지 말고 **curl 1개만 실행** (셸이 `&`를 background 연산자로 오해하거나 앞 명령 출력이 다음 요청에 섞일 수 있음)
-- `-G --data-urlencode` 사용은 허용하지만 평범한 쿼리스트링이 더 안전
-- 지역명 등 한국어는 이미 URL 안전 문자이므로 별도 인코딩 불필요
+- **한국어 파라미터는 반드시 퍼센트 인코딩하여 전달**
+  - Windows Git Bash 등 locale이 UTF-8이 아닌 환경에선 한글이 cp949/EUC-KR로 깨져 `invalid request line` 또는 mojibake+0건 응답 발생
+  - `-G --data-urlencode "region=서울"`도 **이미 깨진 바이트**를 받으므로 무력 — 반드시 사전 인코딩된 문자열을 URL 쿼리에 직접 박을 것
+  - 광역 지역 매핑 (그대로 사용):
+    - `서울=%EC%84%9C%EC%9A%B8` · `경기=%EA%B2%BD%EA%B8%B0` · `인천=%EC%9D%B8%EC%B2%9C`
+    - `부산=%EB%B6%80%EC%82%B0` · `대구=%EB%8C%80%EA%B5%AC` · `광주=%EA%B4%91%EC%A3%BC`
+    - `대전=%EB%8C%80%EC%A0%84` · `울산=%EC%9A%B8%EC%82%B0` · `세종=%EC%84%B8%EC%A2%85`
+  - 구/군 등 임의 한글은 Python 원라이너로 사전 인코딩: `python -c "import urllib.parse; print(urllib.parse.quote('강남구'))"`
+- `-G --data-urlencode`는 Linux/macOS UTF-8 환경에서만 허용 (Windows 금지)
 
 **빈 응답 처리**
 - 응답이 `{"count": 0, "announcements": []}`이고 `errors` 필드에 특정 카테고리만 실패 기록이 있다면 → apt 등 느린 카테고리가 아직 적재 중일 가능성. **15~30초 대기 후 1회 재시도**

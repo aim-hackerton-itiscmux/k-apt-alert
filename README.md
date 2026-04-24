@@ -50,64 +50,50 @@
 
 ### 1단계: 스킬 설치
 
-먼저 이 레포를 clone:
-```bash
-git clone https://github.com/tkddnjs-dlqslek/k-apt-alert.git
-cd k-apt-alert
+**가장 간단한 방법 — 에이전트에게 이 URL만 전달**하면 알아서 설치합니다:
 ```
+https://github.com/tkddnjs-dlqslek/k-apt-alert
+```
+Claude Code / Codex 대화창에 "이 스킬 설치해줘"라고 하면 됩니다.
 
-사용 중인 런타임에 맞게 설치하세요. **둘 다 설치해도 OK** (Claude Code·Codex 모두에서 사용 가능).
+---
+
+**수동 설치 (1-라이너):**
 
 #### A) Claude Code — macOS / Linux / WSL
 ```bash
-# 개인 스킬 디렉토리 (전역)
-mkdir -p ~/.claude/skills && cp -r korea-apt-alert ~/.claude/skills/
-
-# 또는 현재 프로젝트 한정
-mkdir -p .claude/skills && cp -r korea-apt-alert .claude/skills/
+mkdir -p ~/.claude/skills && git clone https://github.com/tkddnjs-dlqslek/k-apt-alert.git ~/.claude/skills/korea-apt-alert
 ```
 
 #### A) Claude Code — Windows PowerShell
 ```powershell
-# 개인 스킬 디렉토리 (전역)
-$dst = "$env:USERPROFILE\.claude\skills"
-New-Item -ItemType Directory -Force -Path $dst | Out-Null
-Copy-Item -Recurse -Force korea-apt-alert $dst
-
-# 또는 현재 프로젝트 한정
-New-Item -ItemType Directory -Force -Path ".claude\skills" | Out-Null
-Copy-Item -Recurse -Force korea-apt-alert ".claude\skills"
+$dst = "$env:USERPROFILE\.claude\skills\korea-apt-alert"
+New-Item -ItemType Directory -Force -Path (Split-Path $dst) | Out-Null
+git clone https://github.com/tkddnjs-dlqslek/k-apt-alert.git $dst
 ```
 
 #### B) Codex CLI — macOS / Linux / WSL
 ```bash
-# 개인 스킬 디렉토리 (전역)
-mkdir -p ~/.agents/skills && cp -r korea-apt-alert ~/.agents/skills/
-
-# 또는 현재 프로젝트 한정
-mkdir -p .agents/skills && cp -r korea-apt-alert .agents/skills/
+mkdir -p ~/.agents/skills && git clone https://github.com/tkddnjs-dlqslek/k-apt-alert.git ~/.agents/skills/korea-apt-alert
 ```
 
 #### B) Codex CLI — Windows PowerShell
 ```powershell
-# 개인 스킬 디렉토리 (전역)
-$dst = "$env:USERPROFILE\.agents\skills"
-New-Item -ItemType Directory -Force -Path $dst | Out-Null
-Copy-Item -Recurse -Force korea-apt-alert $dst
-
-# 또는 현재 프로젝트 한정
-New-Item -ItemType Directory -Force -Path ".agents\skills" | Out-Null
-Copy-Item -Recurse -Force korea-apt-alert ".agents\skills"
+$dst = "$env:USERPROFILE\.agents\skills\korea-apt-alert"
+New-Item -ItemType Directory -Force -Path (Split-Path $dst) | Out-Null
+git clone https://github.com/tkddnjs-dlqslek/k-apt-alert.git $dst
 ```
 
 #### C) 둘 다 사용 — Unix 심볼릭 링크 (선택)
 파일 1벌만 유지하려면:
 ```bash
 # Claude Code 경로에 실제 설치
-mkdir -p ~/.claude/skills && cp -r korea-apt-alert ~/.claude/skills/
+mkdir -p ~/.claude/skills && git clone https://github.com/tkddnjs-dlqslek/k-apt-alert.git ~/.claude/skills/korea-apt-alert
 # Codex는 그 위치를 심볼릭 링크
 mkdir -p ~/.agents/skills && ln -s ~/.claude/skills/korea-apt-alert ~/.agents/skills/korea-apt-alert
 ```
+
+> **중요:** `korea-apt-alert` 대상 폴더명을 그대로 유지해야 합니다 (기본 clone 폴더명은 `k-apt-alert`이지만, SKILL.md의 스킬명이 `korea-apt-alert`라서 폴더명이 일치해야 `/korea-apt-alert` 명령이 동작).
 
 ### 설치 검증
 
