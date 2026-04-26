@@ -178,13 +178,14 @@ export function checkEligibility(
     }
   }
 
-  // 2. 30세 미만 미혼 무주택 기간 0 적용
+  // 2. 30세 미만 미혼 → 무주택 기간 0 + 일반공급 1순위 가점제 사실상 불가
+  //    (단독세대주 예외는 정보 부족이라 보수적으로 critical 처리)
   if (!profile.is_married && ageYears < 30) {
     warnings.push({
       field: "homeless_period",
-      severity: "warning",
-      message: `30세 미만 미혼 → 무주택 기간 0년 적용 (가점 2점)`,
-      detail: "무주택 기간은 만 30세 생일 또는 혼인신고일부터 산정. 현재 ${Math.floor(ageYears)}세이므로 ${30 - Math.floor(ageYears)}년 후부터 기간 누적 시작",
+      severity: "critical",
+      message: `30세 미만 미혼 → 무주택 기간 0년, 일반공급 1순위 가점제 사실상 부적격`,
+      detail: `무주택 기간은 만 30세 또는 혼인신고일부터 산정. 현재 만 ${Math.floor(ageYears)}세이라 가점이 매우 낮아 가점제 당첨 어려움. 추첨제(소형 평수) 또는 특별공급(생애최초 등) 검토 권장`,
     });
   }
 
@@ -234,14 +235,29 @@ export function checkEligibility(
     });
   }
 
-  // 7. 다주택자 1순위 제한 (투기과열지구)
-  if (speculativeZone && profile.has_house) {
+  // 7. 유주택자 일반공급 1순위 부적격 (전국 공통)
+  if (profile.has_house) {
     warnings.push({
-      field: "multi_house",
+      field: "house_ownership",
       severity: "critical",
-      message: "투기과열지구에서 주택 보유자 1순위 청약 불가",
-      detail: "투기과열지구 아파트는 세대 내 주택 보유 시 1순위 신청 불가 — 2순위로만 청약 가능",
+      message: "주택 보유자 → 일반공급 1순위 청약 부적격",
+      detail: speculativeZone
+        ? "투기과열지구는 유주택자 1순위 신청 불가 — 2순위(추첨제)로만 청약 가능"
+        : "일반공급 1순위는 세대원 전원 무주택 필요. 유주택자는 2순위로만 신청 가능 (대부분 추첨제 한정). 다주택자라면 특별공급도 부적격",
     });
+  }
+
+  // 8. 비투기과열 1순위 청약통장 12개월 미달
+  if (!speculativeZone) {
+    const savingsMonths = monthsBetween(profile.savings_start);
+    if (savingsMonths < 12) {
+      warnings.push({
+        field: "savings_period",
+        severity: "critical",
+        message: `1순위 자격 미달: 청약통장 12개월 이상 필요 — 현재 ${Math.round(savingsMonths)}개월`,
+        detail: "수도권/지방 비조정지역 일반공급 1순위는 청약통장 가입 후 12개월 경과 필요. 미달 시 2순위로만 신청 가능",
+      });
+    }
   }
 
   return warnings;
