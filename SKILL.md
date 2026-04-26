@@ -55,6 +55,9 @@ metadata:
 | "{공고명} 변경 내역", "정정공고 확인", "이 공고 바뀐 거" | **공고 변경 이력** (GET /v1/announcement-changes?announcement_id=) |
 | "최근 정정공고", "오늘 바뀐 공고" | **전체 최근 변경** (GET /v1/announcement-changes/recent) |
 | "{공고명} 자세히", "공고 상세", "이 공고 상세 보기" | **공고 상세 + (인증시) 가점·자격 진단 + 최근 변경** (GET /v1/announcement-detail?announcement_id=) |
+| "{공고명} 즐겨찾기", "관심 공고 추가", "찜" (인증 시) | **즐겨찾기 추가** (POST /v1/favorites) |
+| "내 즐겨찾기", "내 관심 공고", "찜 목록" (인증 시) | **즐겨찾기 목록** (GET /v1/favorites, announcement JOIN) |
+| "{공고명} 즐겨찾기 해제", "찜 빼기" (인증 시) | **즐겨찾기 해제** (DELETE /v1/favorites/{id} 또는 ?announcement_id=) |
 
 ### 3. 프록시 호출 규칙 (필수)
 
