@@ -54,6 +54,7 @@ metadata:
 | "{항목} 체크", "체크 해제" (인증 시) | **단일 항목 토글** (PATCH /v1/preparation/{id}/done) |
 | "{공고명} 변경 내역", "정정공고 확인", "이 공고 바뀐 거" | **공고 변경 이력** (GET /v1/announcement-changes?announcement_id=) |
 | "최근 정정공고", "오늘 바뀐 공고" | **전체 최근 변경** (GET /v1/announcement-changes/recent) |
+| "{공고명} 자세히", "공고 상세", "이 공고 상세 보기" | **공고 상세 + (인증시) 가점·자격 진단 + 최근 변경** (GET /v1/announcement-detail?announcement_id=) |
 
 ### 3. 프록시 호출 규칙 (필수)
 
