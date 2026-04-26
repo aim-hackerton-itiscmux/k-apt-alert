@@ -52,6 +52,8 @@ metadata:
 | "준비 체크리스트 시작", "{공고명} 준비 시작" (인증 시) | **체크리스트 자동 생성** (POST /v1/preparation/init?announcement_id=) |
 | "내 준비 진행률", "준비 어디까지", "{공고명} 준비" (인증 시) | **체크리스트 + 진행률** (GET /v1/preparation, documents 자동 ✅) |
 | "{항목} 체크", "체크 해제" (인증 시) | **단일 항목 토글** (PATCH /v1/preparation/{id}/done) |
+| "{공고명} 변경 내역", "정정공고 확인", "이 공고 바뀐 거" | **공고 변경 이력** (GET /v1/announcement-changes?announcement_id=) |
+| "최근 정정공고", "오늘 바뀐 공고" | **전체 최근 변경** (GET /v1/announcement-changes/recent) |
 
 ### 3. 프록시 호출 규칙 (필수)
 
@@ -1556,6 +1558,96 @@ curl -s -X PATCH \
 ### 인증 미설정 시 동작
 
 토큰 없으면 "체크리스트는 청약 코파일럿 앱 로그인 후 사용 가능" 안내.
+
+---
+
+## 공고 변경 내역 (정정공고 추적, 인증 불필요)
+
+청약 공고는 자주 정정됨 (접수 마감 연장 / 세대수 변경 / 일정 보강). 백엔드가 `announcements` UPDATE 시 **DB 트리거로 자동 diff 감지** → `announcement_changes` 테이블에 기록. 크롤러 코드 변경 0.
+
+### 트리거 1 — `"{공고명} 변경 내역"` / `"정정공고 확인"`
+
+```bash
+curl -s --max-time 15 \
+  ".../functions/v1/announcement-changes?announcement_id=apt_2026000123&limit=50"
+```
+
+**응답**:
+```json
+{
+  "announcement_id": "apt_2026000123",
+  "announcement": { "name": "OO지구 OO블록", "region": "서울", ... },
+  "has_changes": true,
+  "total_changes": 5,
+  "revision_count": 2,             // 정정공고 횟수 (그룹 수, 5초 윈도우 클러스터링)
+  "last_changed_at": "2026-04-26T14:30:00Z",
+  "groups": [
+    {
+      "detected_at": "2026-04-26T14:30:00Z",
+      "changes": [
+        {
+          "field": "rcept_end",
+          "field_label_ko": "접수 마감일",
+          "change_type": "updated",
+          "old_value": "20260420",
+          "new_value": "20260425"
+        },
+        ...
+      ]
+    },
+    { "detected_at": "2026-04-25T...", "changes": [...] }
+  ],
+  "flat": [...]
+}
+```
+
+**추적되는 필드 9종**:
+- 일정: `rcept_end` / `rcept_bgn` / `winner_date` / `contract_start` / `contract_end` / `notice_date`
+- 메타: `total_units` / `house_type` / `url`
+
+→ name·region·district·address 같은 식별 필드는 추적 안 함 (노이즈 방지).
+
+**출력 템플릿**:
+```
+📑 [공고명] — 정정공고 2회
+
+📅 2026-04-26 14:30 (1차)
+  ✏️ 접수 마감일: 20260420 → 20260425 (5일 연장)
+  ✏️ 총 세대수: 641 → 645 (특공 4세대 추가)
+
+📅 2026-04-25 09:15 (최초 정정)
+  ➕ 계약 시작일: (없음) → 20260511
+
+🔗 [원문 →](url)
+```
+
+### 트리거 2 — `"최근 정정공고"` / `"오늘 바뀐 공고"`
+
+전체 공고 중 최근 변경:
+```bash
+curl -s ".../functions/v1/announcement-changes/recent?limit=50&since_hours=24"
+```
+
+운영자/대시보드용 — 일반 사용자는 본인 매칭 공고 변경만 알림으로 받게 됨 (notify-cron의 후속 PR로 mode='change_alert' 추가 예정).
+
+### 자동 감지 동작
+
+```
+crawl-* (10분 간격) → announcements UPSERT
+  ↓
+trg_announcements_detect_diff (AFTER UPDATE 트리거)
+  ↓ OLD vs NEW 9개 필드 비교
+  ↓ IS DISTINCT FROM 결과 발견
+  ↓
+announcement_changes INSERT (자동)
+```
+
+→ 크롤러 코드 변경 0. 정정공고가 들어오면 즉시 기록됨.
+
+### 후속 통합 (별도 PR)
+
+- `_shared/notify-match.ts`에 mode='change_alert' 추가 — 변경 발생 시 매칭/즐겨찾기 사용자에게 알림
+- 즐겨찾기 도메인 (favorites) 신규 — 사용자가 관심 공고 추적
 
 ---
 
