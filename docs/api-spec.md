@@ -738,9 +738,22 @@ DB에 저장된 가점 반환. 30일 초과 시 자동 재계산.
 ```json
 {
   "announcement_id": "uuid",
-  "location_score": 88,
-  "category_scores": { "transport": 95, "school": 80, "commerce": 85 },
-  "red_flags": []
+  "location_score": 79,
+  "category_scores": {
+    "transit": 25,
+    "school": 20,
+    "hospital": 10,
+    "daycare": 10,
+    "mart": 9,
+    "restaurant": 10
+  },
+  "red_flags": ["혐오시설 221m"],
+  "nearest": {
+    "station": "창경궁역 수도권 1호선 276m",
+    "school": "홍화초등학교 237m",
+    "mart": "롯데슈퍼 524m",
+    "hospital": "서울그린치과의원 424m"
+  }
 }
 ```
 
@@ -754,11 +767,15 @@ DB에 저장된 가점 반환. 30일 초과 시 자동 재계산.
 ```json
 {
   "announcement_id": "uuid",
-  "has_elementary_within_300m": true,
-  "nearest_elementary_m": 180,
-  "elementary_within_300m": [{ "name": "반포초등학교", "distance_m": 180 }],
-  "elementary_within_500m": [],
-  "elementary_within_1km": []
+  "schools": [
+    { "name": "홍화초등학교", "type": "초등", "distance_m": 411, "students": null, "avg_class_size": null },
+    { "name": "경복중학교", "type": "중학", "distance_m": 286, "students": null, "avg_class_size": null }
+  ],
+  "nearest_elementary_m": 411,
+  "has_elementary_within_300m": false,
+  "elementary_within_300m": [],
+  "elementary_within_500m": [{ "name": "홍화초등학교", "distance_m": 411 }],
+  "elementary_within_1km": [{ "name": "홍화초등학교", "distance_m": 411 }]
 }
 ```
 
@@ -781,10 +798,11 @@ DB에 저장된 가점 반환. 30일 초과 시 자동 재계산.
   "nearest_station": "반포역",
   "walk_to_nearest_station_min": 7,
   "commute": {
-    "강남역": { "transit_min": 12, "walk_min": 25 },
-    "여의도": { "transit_min": 22, "walk_min": 55 }
+    "gangnam": { "transit_min": 37, "walk_min": 43 },
+    "gwanghwamun": { "transit_min": 31, "walk_min": 32 },
+    "pangyo": { "transit_min": 56, "walk_min": 60 }
   },
-  "ad_claim_vs_reality": "광고 '도보 5분' vs 실측 7분 — 오차 2분 (허용 범위)"
+  "ad_claim_vs_reality": null
 }
 ```
 
@@ -804,9 +822,13 @@ DB에 저장된 가점 반환. 30일 초과 시 자동 재계산.
 ```json
 {
   "announcement_id": "uuid",
-  "assessment": "적정",
-  "percentile": 65,
-  "price_per_pyeong": 4200
+  "assessment": "데이터 부족",
+  "percentile": 50,
+  "price_per_pyeong": 0,
+  "comparable_avg_per_pyeong": 0,
+  "comparable_count": 0,
+  "price_premium_pct": 0,
+  "comparable_period": ""
 }
 ```
 
