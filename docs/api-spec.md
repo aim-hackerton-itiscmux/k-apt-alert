@@ -46,6 +46,7 @@ Authorization: Bearer {access_token}
 | `/categories` | GET | ❌ | 공급 유형 카테고리 목록 |
 | `/notice/{id}/raw` | GET | ❌ | 공고 원문 텍스트 추출 |
 | `/recommendations` | GET | ✅ | 프로필 기반 맞춤 추천 |
+| `/favorites` | GET / POST / PATCH / DELETE | ✅ | 즐겨찾기 공고 CRUD + 변경 알림 토글 |
 | `/profile` | GET / PATCH | ✅ | 사용자 선호 프로필 |
 | `/my-score` | GET / POST | ✅ | 청약 가점 조회·계산 |
 | `/eligibility-precheck` | POST | ❌ | 부적격 위험 검증 + 가점 계산 |
@@ -277,6 +278,150 @@ Authorization: Bearer {access_token}
 ```
 
 ---
+
+---
+
+## 즐겨찾기
+
+> 인증 필수 (✅). RLS로 본인 데이터만 격리. 공고 1개당 1개 즐겨찾기 (UNIQUE 제약).
+
+### `GET /favorites` ✅
+
+내 즐겨찾기 목록 + 공고 메타 JOIN
+
+**응답 예시**
+```json
+{
+  "favorites": [
+    {
+      "id": "uuid",
+      "user_id": "uuid",
+      "announcement_id": "string",
+      "notes": "메모 텍스트",
+      "notify_on_change": true,
+      "created_at": "2026-04-01T00:00:00Z",
+      "announcement": {
+        "id": "string",
+        "name": "공고명",
+        "region": "서울",
+        "district": "강남구",
+        "period": "2026-04",
+        "rcept_end": "2026-04-30",
+        "total_units": 120,
+        "house_type": "아파트",
+        "house_category": "공공분양",
+        "url": "https://...",
+        "speculative_zone": false,
+        "price_controlled": true
+      }
+    }
+  ],
+  "summary": {
+    "total": 3,
+    "notify_on_change_count": 2
+  }
+}
+```
+
+**Flutter 예시**
+```dart
+final res = await supabase.functions.invoke('favorites');
+final data = res.data as Map<String, dynamic>;
+final favorites = data['favorites'] as List;
+```
+
+---
+
+### `POST /favorites` ✅
+
+즐겨찾기 추가
+
+**요청 body**
+```json
+{
+  "announcement_id": "string",    // 필수
+  "notes": "메모",                 // 선택 (최대 1000자)
+  "notify_on_change": true        // 선택 (기본값: true)
+}
+```
+
+**응답 (201)**
+```json
+{
+  "favorite": { "id": "uuid", "announcement_id": "string", "notes": null, "notify_on_change": true, ... }
+}
+```
+
+**에러**
+| 코드 | code | 설명 |
+|------|------|------|
+| 409 | `ALREADY_EXISTS` | 이미 즐겨찾기한 공고 |
+| 404 | `ANNOUNCEMENT_NOT_FOUND` | 존재하지 않는 announcement_id |
+
+---
+
+### `PATCH /favorites/{id}` ✅
+
+메모·알림 설정 수정
+
+**요청 body** (하나 이상 필수)
+```json
+{
+  "notes": "수정된 메모",
+  "notify_on_change": false
+}
+```
+
+**응답 (200)**
+```json
+{
+  "favorite": { "id": "uuid", "notes": "수정된 메모", "notify_on_change": false, ... }
+}
+```
+
+---
+
+### `DELETE /favorites/{id}` ✅
+
+즐겨찾기 해제 (id 기반)
+
+**응답 (200)**
+```json
+{ "deleted": ["uuid"], "count": 1 }
+```
+
+---
+
+### `DELETE /favorites?announcement_id={id}` ✅
+
+즐겨찾기 해제 (favorite id를 모를 때 토글 UX용)
+
+**쿼리 파라미터**
+| 파라미터 | 타입 | 설명 |
+|----------|------|------|
+| `announcement_id` | string | 해제할 공고 ID |
+
+**응답 (200)**
+```json
+{ "deleted": ["uuid"], "count": 1 }
+```
+
+**Flutter 토글 예시**
+```dart
+// 즐겨찾기 추가
+final addRes = await supabase.functions.invoke(
+  'favorites',
+  body: {'announcement_id': annId, 'notify_on_change': true},
+  method: HttpMethod.post,
+);
+
+// 즐겨찾기 해제 (announcement_id 기반)
+final delRes = await supabase.functions.invoke(
+  'favorites?announcement_id=$annId',
+  method: HttpMethod.delete,
+);
+```
+
 
 ## 프로필 관리
 
@@ -1019,3 +1164,4 @@ final checkRes = await supabase.functions.invoke(
 ```
 
 > `supabase_flutter` SDK는 로그인 후 모든 `functions.invoke` 호출에 JWT를 자동 첨부합니다.
+
