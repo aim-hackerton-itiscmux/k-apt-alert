@@ -1,7 +1,8 @@
 /** /v1/profile — GET (본인 프로필 + derived) / PATCH (JSONB 부분 머지)
  *
  * 운영 main DB의 `user_profiles` 테이블 사용 (my-score Edge Function과 호환):
- *   user_profiles ( user_id TEXT PK, profile JSONB, score JSONB, updated_at )
+ *   user_profiles ( user_id UUID PK, profile JSONB, score JSONB, fcm_token TEXT, updated_at )
+ *   (migration 012_user_profiles_uuid.sql 이후 UUID 타입)
  *
  * 동작:
  * - GET — profile JSONB + score JSONB + derived fields(age, homeless_years 등) 반환
@@ -11,7 +12,7 @@
  *   (mypage에서 "확정 계산" 버튼 누르면 my-score POST 호출하면 됨)
  *
  * 인증 필수 — _shared/auth.ts 사용 (--no-verify-jwt 배포 가정).
- * RLS 정책 `auth.uid()::text = user_id` 가 본인 row만 격리.
+ * RLS 정책 `auth.uid() = user_id` (UUID 비교). service_role은 RLS 우회.
  */
 
 import { getSupabaseClient } from "../_shared/db.ts";
@@ -77,7 +78,7 @@ Deno.serve(async (req) => {
 
   try {
     const user = await requireUser(req);
-    const userIdText = user.id;  // UUID string — user_profiles는 TEXT 컬럼
+    const userIdText = user.id;  // UUID string (user_profiles.user_id UUID PK)
 
     if (req.method === "GET") {
       const row = await readProfile(userIdText);
