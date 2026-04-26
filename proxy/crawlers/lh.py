@@ -1,5 +1,7 @@
 """LH 공공분양 조회."""
 
+from __future__ import annotations
+
 import logging
 from datetime import datetime, timedelta
 
