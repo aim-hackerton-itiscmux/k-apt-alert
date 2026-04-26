@@ -1,5 +1,7 @@
 /** Announcement 인터페이스 — 모든 크롤러 공통 스키마. */
 
+export type RiskFlag = "high_price" | "oversupply_area" | "weak_demand" | "lockup_conflict";
+
 export interface Announcement {
   id: string;
   name: string;
@@ -24,6 +26,7 @@ export interface Announcement {
   contract_end?: string;
   d_day?: number | null;
   d_day_label?: string;
+  risk_flags?: RiskFlag[];
 }
 
 /** DB announcements 테이블 행 타입. */
