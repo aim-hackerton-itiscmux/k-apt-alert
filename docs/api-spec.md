@@ -47,6 +47,8 @@ Authorization: Bearer {access_token}
 | `/notice/{id}/raw` | GET | ❌ | 공고 원문 텍스트 추출 |
 | `/recommendations` | GET | ✅ | 프로필 기반 맞춤 추천 |
 | `/favorites` | GET / POST / PATCH / DELETE | ✅ | 즐겨찾기 공고 CRUD + 변경 알림 토글 |
+| `/announcement-changes` | GET | ❌ | 공고 변경(정정) 이력 |
+| `/documents` | GET / POST / PATCH / DELETE | ✅ | 청약 준비 서류함 |
 | `/profile` | GET / PATCH | ✅ | 사용자 선호 프로필 |
 | `/my-score` | GET / POST | ✅ | 청약 가점 조회·계산 |
 | `/eligibility-precheck` | POST | ❌ | 부적격 위험 검증 + 가점 계산 |
@@ -843,6 +845,268 @@ DB에 저장된 가점 반환. 30일 초과 시 자동 재계산.
 ```
 
 ---
+
+---
+
+## 공고 변경 이력
+
+> 인증 불필요 (❌). 공개 정보. 크롤러가 공고를 upsert할 때 자동으로 diff를 기록.
+
+### `GET /announcement-changes?announcement_id={id}` ❌
+
+특정 공고의 변경(정정) 내역. 파라미터 없이 호출하면 **400** — `announcement_id` 필수.
+
+**쿼리 파라미터**
+| 파라미터 | 타입 | 기본값 | 설명 |
+|----------|------|--------|------|
+| `announcement_id` | string | **필수** | 공고 ID |
+| `limit` | int | 50 | 최대 200 |
+
+**응답 예시**
+```json
+{
+  "announcement_id": "string",
+  "announcement": { "name": "공고명", "region": "서울", "district": "강남구" },
+  "has_changes": true,
+  "total_changes": 8,
+  "revision_count": 2,
+  "last_changed_at": "2026-04-10T09:00:00Z",
+  "groups": [
+    {
+      "detected_at": "2026-04-10T09:00:00Z",
+      "changes": [
+        {
+          "id": "uuid",
+          "field": "rcept_end",
+          "field_label_ko": "청약 마감일",
+          "change_type": "updated",
+          "old_value": "2026-04-15",
+          "new_value": "2026-04-20",
+          "source": "crawl-apt"
+        }
+      ]
+    }
+  ],
+  "flat": [ ... ]
+}
+```
+
+---
+
+### `GET /announcement-changes/recent` ❌
+
+전체 공고 중 최근 변경 목록 (대시보드·운영자용)
+
+**쿼리 파라미터**
+| 파라미터 | 타입 | 기본값 | 설명 |
+|----------|------|--------|------|
+| `limit` | int | 50 | 최대 200 |
+| `since_hours` | int | 24 | 최근 N시간 이내 (최대 720) |
+
+**응답 예시**
+```json
+{
+  "since": "2026-04-25T00:00:00Z",
+  "since_hours": 24,
+  "total": 12,
+  "changes": [
+    {
+      "id": "uuid",
+      "announcement_id": "string",
+      "field": "rcept_end",
+      "field_label_ko": "청약 마감일",
+      "change_type": "updated",
+      "old_value": "...",
+      "new_value": "...",
+      "detected_at": "...",
+      "announcements": { "name": "...", "region": "서울", "district": "강남구" }
+    }
+  ]
+}
+```
+
+**Flutter 예시**
+```dart
+// 특정 공고 변경 이력
+final res = await supabase.functions.invoke(
+  'announcement-changes',
+  queryParameters: {'announcement_id': annId},
+);
+
+// 최근 변경 전체 (대시보드)
+final recent = await supabase.functions.invoke(
+  'announcement-changes/recent',
+  queryParameters: {'since_hours': '48'},
+);
+```
+
+---
+
+## 서류함
+
+> 인증 필수 (✅). RLS로 본인 서류만 격리. Supabase Storage `user-documents` bucket 연동. `status`는 DB 트리거가 자동 계산 (`ready` / `missing` / `expiring` / `expired`).
+
+### `GET /documents` ✅
+
+내 서류 목록 + 요약
+
+**응답 예시**
+```json
+{
+  "documents": [
+    {
+      "id": "uuid",
+      "user_id": "uuid",
+      "doc_type": "resident_register",
+      "doc_type_label_ko": "주민등록등본",
+      "status": "ready",
+      "issued_date": "2026-03-01",
+      "expires_date": "2026-06-01",
+      "validity_months": 3,
+      "file_url": null,
+      "file_storage_path": "user_id/1234567_파일명.pdf",
+      "file_byte_size": 204800,
+      "file_mime": "application/pdf",
+      "notes": null,
+      "created_at": "2026-04-01T00:00:00Z"
+    }
+  ],
+  "summary": {
+    "total": 5,
+    "required": 3,
+    "ready": 2,
+    "missing": 1,
+    "expiring": 1,
+    "expired": 0
+  }
+}
+```
+
+**doc_type 허용값**
+| 값 | 설명 |
+|----|------|
+| `resident_register` | 주민등록등본 |
+| `family_relation` | 가족관계증명서 |
+| `savings_account` | 청약통장 가입확인서 |
+| `income_proof` | 소득증빙 |
+| `homeless_proof` | 무주택증명 |
+| `marriage_proof` | 혼인관계증명 |
+| `children_proof` | 자녀(다자녀) 증명 |
+| `other` | 기타 |
+
+---
+
+### `POST /documents` ✅
+
+서류 등록
+
+**요청 body**
+```json
+{
+  "doc_type": "resident_register",       // 필수, 위 허용값 중 하나
+  "doc_type_label_ko": "주민등록등본",    // 필수
+  "issued_date": "2026-03-01",           // YYYY-MM-DD
+  "expires_date": "2026-06-01",          // YYYY-MM-DD
+  "validity_months": 3,                  // 0..120
+  "file_url": null,                      // 외부 URL (선택)
+  "file_storage_path": "user/...",       // Storage 경로 (upload-url 통해 얻은 값)
+  "file_byte_size": 204800,
+  "file_mime": "application/pdf",        // application/pdf | image/jpeg | image/png | image/heic
+  "notes": "메모"
+}
+```
+
+**응답 (201)**
+```json
+{ "document": { "id": "uuid", "status": "ready", ... } }
+```
+
+---
+
+### `POST /documents/upload-url` ✅
+
+Supabase Storage 직접 업로드 URL 발급 (파일 업로드 전 선행 호출)
+
+**요청 body**
+```json
+{
+  "filename": "주민등록등본.pdf",
+  "mime": "application/pdf"
+}
+```
+
+**응답 (200)**
+```json
+{
+  "storage_path": "user_id/1714123456789_주민등록등본.pdf",
+  "upload_url": "https://...supabase.co/storage/v1/...",
+  "token": "...",
+  "bucket": "user-documents"
+}
+```
+
+> `upload_url`로 PUT 요청 → 업로드 완료 → `storage_path`를 `POST /documents`의 `file_storage_path`에 전달
+
+---
+
+### `PATCH /documents/{id}` ✅
+
+서류 정보 수정 (`doc_type` 변경 불가)
+
+**요청 body** (변경할 필드만)
+```json
+{
+  "issued_date": "2026-04-01",
+  "expires_date": "2026-07-01",
+  "notes": "갱신본"
+}
+```
+
+---
+
+### `DELETE /documents/{id}` ✅
+
+서류 삭제 (Storage 파일도 자동 삭제 시도)
+
+**응답 (200)**
+```json
+{ "deleted": "uuid" }
+```
+
+**Flutter 파일 업로드 전체 흐름**
+```dart
+// 1. 업로드 URL 발급
+final urlRes = await supabase.functions.invoke(
+  'documents/upload-url',
+  body: {'filename': 'doc.pdf', 'mime': 'application/pdf'},
+  method: HttpMethod.post,
+);
+final uploadUrl = urlRes.data['upload_url'] as String;
+final storagePath = urlRes.data['storage_path'] as String;
+
+// 2. Storage 직접 PUT 업로드
+final http.Response uploadResp = await http.put(
+  Uri.parse(uploadUrl),
+  headers: {'Content-Type': 'application/pdf'},
+  body: fileBytes,
+);
+
+// 3. 서류 등록
+final docRes = await supabase.functions.invoke(
+  'documents',
+  body: {
+    'doc_type': 'resident_register',
+    'doc_type_label_ko': '주민등록등본',
+    'file_storage_path': storagePath,
+    'file_byte_size': fileBytes.length,
+    'file_mime': 'application/pdf',
+    'issued_date': '2026-04-01',
+    'validity_months': 3,
+  },
+  method: HttpMethod.post,
+);
+```
+
 
 ## 알림
 
