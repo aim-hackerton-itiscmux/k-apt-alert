@@ -10,6 +10,8 @@
 - 필드 4종: 모집공고일 / 청약접수 / 당첨자 발표일 / 계약일
 """
 
+from __future__ import annotations
+
 import logging
 import re
 import time

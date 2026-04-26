@@ -1,5 +1,7 @@
 """공통 HTTP 호출 + 표준화 유틸."""
 
+from __future__ import annotations
+
 import re
 import time
 import logging

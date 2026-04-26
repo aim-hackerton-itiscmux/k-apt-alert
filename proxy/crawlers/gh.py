@@ -7,6 +7,8 @@
 - 제목 <a> href="?mode=view&articleNo=64782..."
 """
 
+from __future__ import annotations
+
 import logging
 import re
 from datetime import datetime, timedelta

@@ -8,6 +8,8 @@
 - 상세 URL: .../m_247/view.do?seq={seq}&multi_itm_seq={1 or 2} (GET 가능)
 """
 
+from __future__ import annotations
+
 import logging
 import re
 from datetime import datetime
