@@ -2,13 +2,19 @@
  *
  * - id로 announcements 테이블에서 url 조회 (A안)
  * - 실패 시 ?url= 폴백 (C안)
- * - 호스트 화이트리스트: applyhome.co.kr / apply.lh.or.kr
+ * - 호스트 화이트리스트: applyhome.co.kr / apply.lh.or.kr / i-sh.co.kr / gh.or.kr
  * - 7일 캐시 (notice_raw_cache 테이블), force_refresh로 무효화
  * - 무료 30K cap, 유료 50~80K (Phase 1은 인증 미구현 — 무료 강제)
+ *
+ * 옵션:
+ *   ?include_attachments=true — HTML 본문에서 PDF 첨부 발견 시 텍스트 추출 + text에 append
+ *     · 다운로드 10MB / 페이지 100개 / 첨부 3개 상한
+ *     · 캐시 키 별도 (suffix ":pdf")로 PDF 포함/미포함 분리
  */
 
 import { getSupabaseClient } from "../_shared/db.ts";
 import { jsonResponse, corsPreflightResponse } from "../_shared/crawl-helpers.ts";
+import { extractPdfsFromHtml, type PdfExtractResult } from "../_shared/pdf-extract.ts";
 
 const NOTICE_RAW_TTL_SECONDS = 7 * 24 * 3600;
 const NOTICE_RAW_DAILY_LIMIT_FREE = 1000;
@@ -243,7 +249,7 @@ async function checkRateLimit(): Promise<{ count: number; limit: number; exceede
 
 async function fetchAndExtract(
   url: string,
-): Promise<{ title: string; text: string }> {
+): Promise<{ title: string; text: string; html: string }> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), NOTICE_HTTP_TIMEOUT_MS);
   try {
@@ -254,11 +260,13 @@ async function fetchAndExtract(
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const html = await resp.text();
     const which = pickExtractorHost(url);
-    if (which === "applyhome") return extractApplyhome(html);
-    if (which === "lh") return extractLh(html);
-    if (which === "sh") return extractSh(html);
-    if (which === "gh") return extractGh(html);
-    throw new Error(`no extractor for ${url}`);
+    let extracted: { title: string; text: string };
+    if (which === "applyhome") extracted = extractApplyhome(html);
+    else if (which === "lh") extracted = extractLh(html);
+    else if (which === "sh") extracted = extractSh(html);
+    else if (which === "gh") extracted = extractGh(html);
+    else throw new Error(`no extractor for ${url}`);
+    return { ...extracted, html };
   } finally {
     clearTimeout(timer);
   }
@@ -288,6 +296,7 @@ Deno.serve(async (req) => {
     const fallbackUrl = url.searchParams.get("url") ?? "";
     const requestedTier = url.searchParams.get("tier") ?? "free";
     const forceRefresh = url.searchParams.get("force_refresh") === "true";
+    const includeAttachments = url.searchParams.get("include_attachments") === "true";
     const requestedMaxChars = parseInt(
       url.searchParams.get("max_chars") ?? String(NOTICE_MAX_CHARS_DEFAULT),
       10,
@@ -336,24 +345,44 @@ Deno.serve(async (req) => {
       );
     }
 
-    if (forceRefresh) await invalidateCache(noticeId);
+    // PDF 첨부 포함 시 별도 캐시 키 (':pdf' suffix)로 분리 — HTML-only 캐시 오염 방지
+    const cacheKey = includeAttachments ? `${noticeId}:pdf` : noticeId;
 
-    let cached = await readCache(noticeId);
+    if (forceRefresh) await invalidateCache(cacheKey);
+
+    let cached = await readCache(cacheKey);
     let cacheHit = !!cached;
+    let pdfAttachments: PdfExtractResult[] = [];
 
     if (!cached) {
       try {
-        const { title, text } = await fetchAndExtract(resolvedUrl);
+        const { title, text, html } = await fetchAndExtract(resolvedUrl);
         if (!text) {
           return jsonResponse({ error: "empty extracted text" }, 502);
         }
-        const sections = detectSections(text);
-        await writeCache(noticeId, resolvedUrl, title, text, sections);
+        let fullText = text;
+
+        // PDF 첨부 추출 (옵션, 본문 추출 후 append)
+        if (includeAttachments) {
+          try {
+            const pdfResult = await extractPdfsFromHtml(html, resolvedUrl, 3);
+            pdfAttachments = pdfResult.texts;
+            if (pdfResult.merged_extra) {
+              fullText = `${text}${pdfResult.merged_extra}`;
+            }
+          } catch (pdfErr) {
+            console.warn(`PDF extraction soft-failed for ${noticeId}: ${pdfErr}`);
+            // PDF 실패해도 본문은 반환 (degraded mode)
+          }
+        }
+
+        const sections = detectSections(fullText);
+        await writeCache(cacheKey, resolvedUrl, title, fullText, sections);
         cached = {
           url: resolvedUrl,
-          source: "html",
+          source: includeAttachments && pdfAttachments.length > 0 ? "html+pdf" : "html",
           title,
-          full_text: text,
+          full_text: fullText,
           sections,
           fetched_at: new Date().toISOString(),
         };
@@ -378,6 +407,14 @@ Deno.serve(async (req) => {
       effective_max_chars: effectiveMaxChars,
       tier_capped: tierCapped,
       cache_hit: cacheHit,
+      attachments_included: includeAttachments,
+      attachments: pdfAttachments.map((p) => ({
+        url: p.url,
+        page_count: p.page_count,
+        byte_size: p.byte_size,
+        truncated_pages: p.truncated_pages,
+        text_chars: p.text.length,
+      })),
     });
   } catch (e) {
     console.error(`notice error: ${e}`);
