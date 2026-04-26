@@ -459,9 +459,18 @@ final delRes = await supabase.functions.invoke(
   "preferred_size_sqm": 59,
   "is_homeless": true,
   "has_house": false,
-  "special_supply_interests": ["신혼부부", "생애최초"]
+  "special_supply_interests": ["신혼부부", "생애최초"],
+  "onboarding_step": 3,
+  "onboarding_completed_at": "2026-04-26T10:00:00Z",
+  "subscription_contributions": 24
 }
 ```
+
+| 필드 | 타입 | 범위 | 설명 |
+|------|------|------|------|
+| `onboarding_step` | int | 1..10 | 앱 온보딩 현재 step |
+| `onboarding_completed_at` | string | ISO datetime | 온보딩 완료 시각 |
+| `subscription_contributions` | int | 0..10000 | 청약통장 누적 납입 회차 |
 
 **응답:** `GET /profile`과 동일 구조
 
@@ -1309,9 +1318,28 @@ Slack·Telegram 웹훅으로 공고 알림 발송 (서버 주도 알림).
   "summary_markdown": "## 분석 결과\n...",
   "notice_url": "https://...",
   "title": "래미안 원베일리 분석",
-  "match_score": 850
+  "match_score": 850,
+  "verdict": "conditional_recommend",
+  "confidence_score": 72,
+  "key_points": [
+    { "icon": "savings", "label": "분양가 우위", "value": "주변 대비 -15%", "tone": "positive" }
+  ],
+  "evidence": [
+    { "category": "official_source", "icon": "format_quote", "title": "모집공고 원문", "citation": "...", "link": "..." },
+    { "category": "official_db", "icon": "account_balance", "title": "청약홈 자격요건", "citation": "...", "link": "..." },
+    { "category": "market_data", "icon": "monitoring", "title": "인근 실거래가", "citation": "...", "link": "..." }
+  ],
+  "charts_data": {
+    "price_vs_market": { "target": { "size_sqm": 84, "price_eok": 9.5 }, "comparable": { "avg_eok": 11.2 }, "margin_eok": 1.7 },
+    "competition_estimate": { "tier1_required_score": 60, "user_score": 54 }
+  }
 }
 ```
+
+> `verdict` 허용값: `strong_recommend` | `conditional_recommend` | `caution` | `not_recommend`
+> `key_points[].tone`: `positive` | `neutral` | `caution` | `negative`
+> `evidence[].category`: `official_source` | `official_db` | `market_data` | `ai_inference`
+> 마이그레이션 `020_reports_rich_fields.sql` DB 반영 필요 (Supabase SQL Editor)
 
 ### `GET /reports` ✅
 
