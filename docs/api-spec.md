@@ -59,6 +59,10 @@ Authorization: Bearer {access_token}
 | `/price-assessment` | GET | ❌ | 분양가 적정성 평가 |
 | `/development-news` | GET | ❌ | 개발 호재 뉴스 검증 |
 | `/visit-checklist` | GET | ❌ | 현장 방문 체크리스트 |
+| `/preparation/init` | POST | ✅ | 청약 준비 체크리스트 초기화 |
+| `/preparation` | GET | ✅ | 체크리스트 조회 (documents 자동 연동) |
+| `/preparation/{id}/done` | PATCH | ✅ | 항목 체크/언체크 |
+| `/preparation/{id}` | DELETE | ✅ | 항목 삭제 |
 | `/reports` | GET / POST / DELETE | ✅ | 분석 리포트 저장·조회 |
 | `/health` | GET | ❌ | 서버 상태 확인 |
 | `/cache-status` | GET | ❌ | 크롤 캐시 상태 |
@@ -703,6 +707,112 @@ Slack·Telegram 웹훅으로 공고 알림 발송 (서버 주도 알림).
 ```json
 { "sent": 3, "channels": ["slack", "telegram"], "errors": null, "message": "알림 발송 완료" }
 ```
+
+---
+
+## 청약 준비 체크리스트
+
+### `POST /preparation/init` ✅
+
+체크리스트 초기화 — 일반공급 12개 + 특별공급 유형별 추가 항목 자동 생성.  
+이미 초기화된 경우 기존 목록 그대로 반환 (중복 생성 없음).
+
+**쿼리 파라미터**
+| 파라미터 | 타입 | 기본값 | 설명 |
+|---------|------|-------|------|
+| `announcement_id` | string | (없음) | 연결할 공고 ID |
+| `supply_types` | string | (프로필에서 자동) | 쉼표 구분 특별공급 유형 (`"신혼부부,생애최초"`) |
+
+> `supply_types` 미지정 시 저장된 프로필의 `special_supply_interests` 자동 사용  
+> 지원 값: `신혼부부` `생애최초` `다자녀` `노부모부양`
+
+**응답** (HTTP 201)
+```json
+{
+  "items": [
+    {
+      "id": "uuid",
+      "category": "기본준비",
+      "type": "자격",
+      "title": "무주택 세대구성원 확인",
+      "description": "본인·배우자·세대원 모두 주택 미보유",
+      "due_offset_days": -14,
+      "is_auto_checkable": true,
+      "linked_doc_type": null,
+      "is_done": false,
+      "linked_document_status": null,
+      "auto_done_by_doc": false,
+      "effective_is_done": false,
+      "sort_order": 20
+    }
+  ],
+  "summary": { "total": 14, "done": 0, "auto_done": 0, "manual_done": 0, "pending": 14, "percent": 0 },
+  "initialized": 14,
+  "supply_types_used": ["신혼부부"]
+}
+```
+
+---
+
+### `GET /preparation` ✅
+
+체크리스트 조회. `documents` 도메인과 자동 연동 — 서류 준비 완료 항목은 `effective_is_done: true` 자동 표시.
+
+**쿼리 파라미터**
+| 파라미터 | 타입 | 설명 |
+|---------|------|------|
+| `announcement_id` | string | 특정 공고 필터 (없으면 전체) |
+
+**응답**
+```json
+{
+  "items": [
+    {
+      "id": "uuid",
+      "category": "서류및결정",
+      "type": "서류",
+      "title": "주민등록등본 발급",
+      "description": "공고일 이후 발급분 (3개월 이내)",
+      "due_offset_days": -3,
+      "linked_doc_type": "resident_register",
+      "is_done": false,
+      "linked_document_status": "ready",
+      "auto_done_by_doc": true,
+      "effective_is_done": true,
+      "sort_order": 50
+    }
+  ],
+  "summary": { "total": 14, "done": 3, "auto_done": 2, "manual_done": 1, "pending": 11, "percent": 21 }
+}
+```
+
+> `effective_is_done` = `is_done` OR (`linked_doc_type` 있고 해당 document.status == `"ready"`)  
+> `category`: `"기본준비"` | `"서류및결정"` | `"접수당일"`  
+> `type`: `"자금"` | `"자격"` | `"서류"` | `"결정"` | `"접수"`
+
+---
+
+### `PATCH /preparation/{id}/done` ✅
+
+항목 체크/언체크.
+
+**요청 Body**
+```json
+{ "is_done": true }
+```
+
+**응답**
+```json
+{ "item": { "id": "uuid", "is_done": true, "done_at": "2026-04-26T14:00:00Z" } }
+```
+
+---
+
+### `DELETE /preparation/{id}` ✅
+
+불필요한 항목 삭제.
+
+**응답:** `{ "deleted": "uuid" }`
 
 ---
 
