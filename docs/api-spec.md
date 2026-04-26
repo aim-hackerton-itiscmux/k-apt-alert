@@ -41,6 +41,7 @@ Authorization: Bearer {access_token}
 
 | 엔드포인트 | 메서드 | 인증 | 설명 |
 |-----------|--------|------|------|
+| `/announcement-detail` | GET | ⚡ | 단일 공고 상세 + 진단 (인증 시 맞춤 진단 추가) |
 | `/announcements` | GET | ❌ | 청약 공고 통합 조회 |
 | `/categories` | GET | ❌ | 공급 유형 카테고리 목록 |
 | `/notice/{id}/raw` | GET | ❌ | 공고 원문 텍스트 추출 |
@@ -70,6 +71,76 @@ Authorization: Bearer {access_token}
 ---
 
 ## 공고 조회
+
+### `GET /announcement-detail`
+
+단일 공고 상세 통합 응답. 인증 옵셔널 — 비로그인도 공고 메타·변경 내역 조회 가능, 로그인 시 맞춤 진단 포함.
+
+**쿼리 파라미터**
+| 파라미터 | 타입 | 설명 |
+|---------|------|------|
+| `announcement_id` | string | (필수) |
+
+**응답**
+```json
+{
+  "announcement": {
+    "id": "uuid",
+    "name": "래미안 원베일리",
+    "region": "서울",
+    "district": "서초구",
+    "period": "2026-04-20 ~ 2026-04-22",
+    "rcept_bgn": "2026-04-20",
+    "rcept_end": "2026-04-22",
+    "total_units": 641,
+    "house_category": "APT 일반분양",
+    "constructor": "삼성물산",
+    "size": "59㎡/84㎡",
+    "speculative_zone": "Y",
+    "price_controlled": "Y",
+    "d_day": 3
+  },
+  "recent_changes": [
+    {
+      "id": "uuid",
+      "detected_at": "2026-04-25T10:00:00Z",
+      "field": "rcept_end",
+      "field_label_ko": "청약 마감일",
+      "change_type": "updated",
+      "old_value": "2026-04-21",
+      "new_value": "2026-04-22"
+    }
+  ],
+  "change_count": 1,
+  "has_changes": true,
+  "diagnosis": {
+    "score": {
+      "total": 32,
+      "homeless_years": 6.3,
+      "homeless_score": 14,
+      "dependents_score": 10,
+      "savings_months": 48,
+      "savings_score": 8
+    },
+    "warnings": [
+      {
+        "field": "savings_period",
+        "severity": "critical",
+        "message": "투기과열지구 1순위 요건: 청약통장 24개월 이상 — 현재 18개월",
+        "detail": "..."
+      }
+    ],
+    "warning_summary": { "critical": 1, "warning": 0, "info": 1 },
+    "profile_used": true
+  },
+  "generated_at": "2026-04-26T14:00:00Z"
+}
+```
+
+> `diagnosis` — 로그인 안 했으면 `null`, 로그인했지만 프로필 미등록이면 `profile_used: false`로 반환  
+> `recent_changes` — 최근 5건만 (전체는 `/announcement-changes` 별도 엔드포인트)
+
+---
 
 ### `GET /announcements`
 
