@@ -363,7 +363,10 @@ supabase link --project-ref xnyhzyvigazofjoozuub
 
 # Secrets
 supabase secrets set DATA_GO_KR_API_KEY=your_key
-supabase secrets set FIREBASE_SERVER_KEY=your_fcm_key   # 푸시 알림 (선택)
+# Firebase FCM HTTP v1 (Service Account 기반 — 2024-07-22 Legacy 차단됨)
+supabase secrets set FIREBASE_PROJECT_ID=your-project-id
+supabase secrets set FIREBASE_CLIENT_EMAIL=firebase-adminsdk-xxx@your-project.iam.gserviceaccount.com
+supabase secrets set FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
 supabase secrets set GEMINI_API_KEY=your_key            # similar-listings LLM (선택)
 supabase secrets set KAKAO_API_KEY=your_key             # 카카오 모빌리티/로컬 (선택)
 supabase secrets set NEIS_API_KEY=your_key              # 학교 정보 (선택)
