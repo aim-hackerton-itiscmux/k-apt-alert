@@ -2,29 +2,7 @@
 import { jsonResponse, corsPreflightResponse } from "../_shared/crawl-helpers.ts";
 import { getSupabaseClient } from "../_shared/db.ts";
 import { calcScore, UserProfile } from "../_shared/eligibility.ts";
-
-const FIREBASE_SERVER_KEY = Deno.env.get("FIREBASE_SERVER_KEY") ?? "";
-
-async function sendFCM(fcmToken: string, title: string, body: string): Promise<void> {
-  if (!FIREBASE_SERVER_KEY || !fcmToken) return;
-  try {
-    await fetch("https://fcm.googleapis.com/fcm/send", {
-      method: "POST",
-      headers: {
-        "Authorization": `key=${FIREBASE_SERVER_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        to: fcmToken,
-        notification: { title, body },
-        data: { type: "score_update" },
-      }),
-      signal: AbortSignal.timeout(8_000),
-    });
-  } catch (e) {
-    console.warn("FCM send failed:", e);
-  }
-}
+import { sendFCM } from "../_shared/fcm.ts";
 
 /** notifications 테이블에 인앱 알림 저장. */
 async function insertNotification(
@@ -90,9 +68,7 @@ Deno.serve(async (req) => {
         const title = `청약 가점 +${diff}점 🎉`;
         const body  = `이번 달 가점이 ${oldTotal}점 → ${newScore.total}점으로 올랐습니다.`;
 
-        // FCM 푸시
         if (row.fcm_token) await sendFCM(row.fcm_token, title, body);
-
         if (await insertNotification(db, row.user_id, title, body)) notified++;
       }
     }
