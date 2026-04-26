@@ -22,6 +22,11 @@ export interface UIProfileExtras {
   income_bracket?: string;              // '도시근로자 100% 이하' | '120%' | '140%' | '160%'
   household_type?: string;              // '무주택세대구성원' | '세대주' | '세대원'
   special_supply_interests?: string[];  // ['신혼부부','생애최초','다자녀','노부모부양']
+  // 온보딩 진행 추적 (Stitch screen 550553a6 — Step N/5)
+  onboarding_step?: number;             // 1..5 (현재 진행 중인 step). 5 도달 시 완료
+  onboarding_completed_at?: string;     // ISO datetime — Step 5 완료 시 set
+  // 청약통장 납입 횟수 (디자인 필드, savings_start와 별도)
+  subscription_contributions?: number;  // 0+, 누적 납입 회차
 }
 
 /** user_profiles.profile JSONB 통합 타입 — UserProfile + UIProfileExtras */
@@ -57,6 +62,10 @@ const ALLOWED_FIELDS = new Set<keyof FullProfile>([
   "income_bracket",
   "household_type",
   "special_supply_interests",
+  // 온보딩 진행 + 청약통장 납입 횟수 (020 추가)
+  "onboarding_step",
+  "onboarding_completed_at",
+  "subscription_contributions",
 ]);
 
 /** YYYY-MM-DD 또는 ISO 날짜 문자열 → 경과 년수 (소수 버림). 잘못된 입력은 undefined. */
@@ -136,6 +145,25 @@ export function validateProfileUpdate(update: FullProfile): string | null {
     !Array.isArray(update.special_supply_interests)
   ) {
     return "special_supply_interests must be array";
+  }
+  // 온보딩
+  if (update.onboarding_step !== undefined && update.onboarding_step !== null) {
+    const n = Number(update.onboarding_step);
+    if (!Number.isInteger(n) || n < 1 || n > 10) return "onboarding_step must be 1..10";
+  }
+  if (update.onboarding_completed_at !== undefined && update.onboarding_completed_at !== null) {
+    if (typeof update.onboarding_completed_at !== "string") {
+      return "onboarding_completed_at must be ISO datetime string";
+    }
+    if (Number.isNaN(new Date(update.onboarding_completed_at).getTime())) {
+      return "onboarding_completed_at must be valid ISO datetime";
+    }
+  }
+  if (update.subscription_contributions !== undefined && update.subscription_contributions !== null) {
+    const n = Number(update.subscription_contributions);
+    if (!Number.isInteger(n) || n < 0 || n > 10000) {
+      return "subscription_contributions must be 0..10000";
+    }
   }
   return null;
 }
