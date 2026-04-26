@@ -1,12 +1,16 @@
-/** GET /v1/apt/school-zone — 학군 정보 + 초품아 판정 */
+/** GET /v1/apt/school-zone — 학군 정보 (반경 300m/500m/1km 구분) */
 import { jsonResponse, corsPreflightResponse } from "../_shared/crawl-helpers.ts";
 import { getSupabaseClient } from "../_shared/db.ts";
 import { geocodeAddress, searchCategory } from "../_shared/kakao.ts";
 import { fetchSchoolDetails } from "../_shared/neis.ts";
 
-const KAKAO_API_KEY = Deno.env.get("KAKAO_API_KEY") ?? "";
-const NEIS_API_KEY  = Deno.env.get("NEIS_API_KEY")  ?? "";
+const KAKAO_API_KEY  = Deno.env.get("KAKAO_API_KEY") ?? "";
+const NEIS_API_KEY   = Deno.env.get("NEIS_API_KEY")  ?? "";
 const CACHE_TTL_DAYS = 30;
+
+function isElementary(name: string) {
+  return name.includes("초등") || name.includes("초교");
+}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return corsPreflightResponse();
@@ -44,27 +48,37 @@ Deno.serve(async (req) => {
   }
   if (lat === 0 || lng === 0) return jsonResponse({ error: "lat/lng 또는 address 필요" }, 400);
 
-  // 반경 1km 학교 조회
+  // 반경 1km 학교 전체 조회
   const places = await searchCategory("SC4", lat, lng, 1000, KAKAO_API_KEY);
 
-  // 초품아 판정: 반경 300m 내 초등학교
-  const elementaryNearby = places.filter((p) => {
-    const d = parseFloat(p.distance || "9999");
-    return d <= 300 && (p.place_name.includes("초등") || p.place_name.includes("초교"));
-  });
+  // 초등학교만 필터 후 거리 분류
+  const elementary = places.filter((p) => isElementary(p.place_name));
+  const within300  = elementary.filter((p) => parseFloat(p.distance) <= 300);
+  const within500  = elementary.filter((p) => parseFloat(p.distance) <= 500);
+  const within1km  = elementary; // 전체 1km 이내
 
-  const nearestElementary = places
-    .filter((p) => p.place_name.includes("초등") || p.place_name.includes("초교"))
-    .sort((a, b) => parseFloat(a.distance) - parseFloat(b.distance))[0];
+  const nearestElementary = elementary[0] ?? null;
 
   const schools = await fetchSchoolDetails(places, NEIS_API_KEY);
 
   const result = {
     announcement_id: announcementId,
-    is_elementary_nearby: elementaryNearby.length > 0,
+    elementary_within_300m: within300.map((p) => ({
+      name: p.place_name,
+      distance_m: Math.floor(parseFloat(p.distance)),
+    })),
+    elementary_within_500m: within500.map((p) => ({
+      name: p.place_name,
+      distance_m: Math.floor(parseFloat(p.distance)),
+    })),
+    elementary_within_1km: within1km.map((p) => ({
+      name: p.place_name,
+      distance_m: Math.floor(parseFloat(p.distance)),
+    })),
     nearest_elementary_m: nearestElementary
       ? Math.floor(parseFloat(nearestElementary.distance))
       : null,
+    has_elementary_within_300m: within300.length > 0,
     schools,
   };
 
