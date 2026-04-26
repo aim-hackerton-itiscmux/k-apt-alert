@@ -150,7 +150,7 @@ Deno.serve(async (req) => {
     const match = extractMatchFields(profile);
 
     // active 공고
-    const today = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+    const today = new Date().toISOString().slice(0, 10);
     const annResp = await db
       .from("announcements")
       .select("*")
