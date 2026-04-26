@@ -4,7 +4,7 @@ const KAKAO_CATEGORY_URL = "https://dapi.kakao.com/v2/local/search/category.json
 const KAKAO_KEYWORD_URL  = "https://dapi.kakao.com/v2/local/search/keyword.json";
 const KAKAO_ADDRESS_URL  = "https://dapi.kakao.com/v2/local/search/address.json";
 
-interface KakaoPlace {
+export interface KakaoPlace {
   place_name: string;
   distance: string;
 }
@@ -33,7 +33,7 @@ function distanceScore(distM: number): number {
   return 0;
 }
 
-async function searchCategory(
+export async function searchCategory(
   code: string, lat: number, lng: number, radius: number, apiKey: string,
 ): Promise<KakaoPlace[]> {
   const url = new URL(KAKAO_CATEGORY_URL);
@@ -103,7 +103,6 @@ export async function calcLocationScore(
 ): Promise<LocationScoreData> {
   const entries = Object.entries(CATEGORY_CONFIG);
 
-  // 카테고리 + 혐오시설 병렬 조회
   const [categoryResults, redFlagResults, funeralResults] = await Promise.all([
     Promise.all(entries.map(([, [code, radius]]) => searchCategory(code, lat, lng, radius, apiKey))),
     Promise.all(RED_FLAG_CATEGORIES.map(([code, radius]) => searchCategory(code, lat, lng, radius, apiKey))),
