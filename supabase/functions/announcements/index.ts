@@ -4,6 +4,7 @@ import { getSupabaseClient } from "../_shared/db.ts";
 import { addDDay, isActive } from "../_shared/d-day.ts";
 import { dedupAnnouncements, applyExtraFilters, applyReminderFilter } from "../_shared/filters.ts";
 import { jsonResponse, corsPreflightResponse } from "../_shared/crawl-helpers.ts";
+import { calcRiskFlags } from "../_shared/risk.ts";
 import type { Announcement } from "../_shared/types.ts";
 
 const ALL_CATEGORIES = ["apt", "officetell", "lh", "remndr", "pbl_pvt_rent", "opt", "sh", "gh"];
@@ -21,6 +22,7 @@ Deno.serve(async (req) => {
     const constructorContains = url.searchParams.get("constructor_contains") ?? "";
     const excludeIds = url.searchParams.get("exclude_ids") ?? "";
     const reminder = url.searchParams.get("reminder") ?? "";
+    const withRisk = url.searchParams.get("risk_flags") !== "false"; // 기본 true
 
     const regionFilter = region
       ? new Set(region.split(",").map((r) => r.trim()).filter(Boolean))
@@ -29,7 +31,6 @@ Deno.serve(async (req) => {
       ? new Set(district.split(",").map((d) => d.trim()).filter(Boolean))
       : new Set<string>();
 
-    // DB에서 SELECT
     const db = getSupabaseClient();
     const categories = category === "all" ? ALL_CATEGORIES : [category];
 
@@ -39,21 +40,15 @@ Deno.serve(async (req) => {
 
     let query = db.from("announcements").select("*").in("category", categories);
 
-    // 지역 필터는 DB 레벨에서 적용 (성능)
     if (regionFilter.size > 0) {
-      // region이 전국이면 항상 포함해야 하므로 or 조건
       query = query.or(
         `region.in.(${[...regionFilter].map((r) => `"${r}"`).join(",")}),region.eq.전국`,
       );
     }
 
     const { data: rows, error } = await query;
+    if (error) return jsonResponse({ error: error.message }, 500);
 
-    if (error) {
-      return jsonResponse({ error: error.message }, 500);
-    }
-
-    // DB 행 → Announcement 타입 변환
     let announcements: Announcement[] = (rows ?? []).map((r) => ({
       id: r.id,
       name: r.name,
@@ -78,27 +73,29 @@ Deno.serve(async (req) => {
       contract_end: r.contract_end ?? undefined,
     }));
 
-    // 구/군 필터 (코드 레벨)
     if (districtFilter.size > 0) {
       announcements = announcements.filter(
         (a) => !a.district || districtFilter.has(a.district),
       );
     }
 
-    // 중복 제거
     announcements = dedupAnnouncements(announcements);
-
-    // D-day 계산 + active_only 필터
     announcements = announcements.map(addDDay);
-    if (activeOnly) {
-      announcements = announcements.filter(isActive);
-    }
-
-    // 추가 필터
+    if (activeOnly) announcements = announcements.filter(isActive);
     announcements = applyExtraFilters(announcements, minUnits, constructorContains, excludeIds);
     announcements = applyReminderFilter(announcements, reminder);
 
-    // data_age_seconds 계산 — crawl_metadata에서 가장 오래된 것
+    // risk_flags enrichment (병렬)
+    if (withRisk && announcements.length > 0) {
+      const riskResults = await Promise.all(
+        announcements.map((ann) => calcRiskFlags(ann, announcements, db)),
+      );
+      announcements = announcements.map((ann, i) => ({
+        ...ann,
+        risk_flags: riskResults[i],
+      }));
+    }
+
     const { data: metaRows } = await db
       .from("crawl_metadata")
       .select("crawled_at")
