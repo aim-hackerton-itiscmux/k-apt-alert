@@ -145,9 +145,53 @@ def _extract_lh(html: str) -> dict:
     return {"title": title, "text": text}
 
 
+def _extract_sh(html: str) -> dict:
+    """SH (i-sh.co.kr) 게시판 view.do 상세 페이지 추출.
+
+    URL 패턴: /app/lay2/program/.../brd/m_247/view.do?seq=...&multi_itm_seq=1|2
+    본문 컨테이너 후보: .board_view / .view_cont / .bbs_view / #content / .cont_view
+    하이픈/언더스코어 변형 모두 시도, 실패 시 body fallback.
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    title = _extract_title(soup)
+
+    container = soup.select_one(
+        ".board_view, .board-view, .view_cont, .view-cont, .bbs_view, .bbs-view, "
+        ".cont_view, .cont-view, .board_cont, .board-cont, #content"
+    )
+    if not container:
+        container = soup.body or soup
+
+    text = _clean_text(BeautifulSoup(str(container), "html.parser"))
+    return {"title": title, "text": text}
+
+
+def _extract_gh(html: str) -> dict:
+    """GH (gh.or.kr) announcement-of-salerental001.do 상세 페이지 추출.
+
+    URL 패턴: /gh/announcement-of-salerental001.do?mode=view&articleNo=...
+    본문 컨테이너 후보: .board_view / .view_content / .table_view / #content
+    SH와 유사한 게시판 구조이나 클래스 변형 가능, 실패 시 body fallback.
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    title = _extract_title(soup)
+
+    container = soup.select_one(
+        ".board_view, .board-view, .view_content, .view-content, .bbs_view, .bbs-view, "
+        ".table_view, .table-view, .view_cont, .view-cont, .content_view, .content-view, #content"
+    )
+    if not container:
+        container = soup.body or soup
+
+    text = _clean_text(BeautifulSoup(str(container), "html.parser"))
+    return {"title": title, "text": text}
+
+
 _EXTRACTORS = (
     ("applyhome.co.kr", _extract_applyhome),
     ("apply.lh.or.kr", _extract_lh),
+    ("i-sh.co.kr", _extract_sh),
+    ("gh.or.kr", _extract_gh),
 )
 
 

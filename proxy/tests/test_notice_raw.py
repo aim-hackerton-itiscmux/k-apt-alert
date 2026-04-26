@@ -55,13 +55,16 @@ def test_supported_host_lh():
     assert notice_raw.is_supported_host("https://apply.lh.or.kr/lhapply/foo")
 
 
+def test_supported_host_sh():
+    assert notice_raw.is_supported_host("https://www.i-sh.co.kr/app/lay2/program/...view.do?seq=303101")
+
+
+def test_supported_host_gh():
+    assert notice_raw.is_supported_host("https://www.gh.or.kr/gh/announcement-of-salerental001.do?mode=view&articleNo=1")
+
+
 def test_unsupported_host_evil():
     assert not notice_raw.is_supported_host("https://evil.example.com/abc")
-
-
-def test_unsupported_host_sh_phase2():
-    # SH는 Phase 2 — 현재 차단
-    assert not notice_raw.is_supported_host("https://www.i-sh.co.kr/x")
 
 
 def test_empty_url():
@@ -151,6 +154,44 @@ def test_lh_content_id():
     assert "국민임대주택" in result["title"]
     # 모든 4개 섹션 패턴 매칭 검증
     assert set(result["sections"].keys()) == {"자격", "공급일정", "공급금액", "유의사항"}
+
+
+# ─── SH 추출 ───────────────────────────────────────────────────────────
+
+
+def test_sh_board_view():
+    html = _load("sh_view.html")
+    with mock.patch.object(notice_raw.requests, "get", return_value=_fake_response(html)):
+        result = notice_raw.extract_notice_raw(
+            notice_id="sh_001",
+            url="https://www.i-sh.co.kr/app/lay2/program/.../m_247/view.do?seq=303101&multi_itm_seq=2",
+            max_chars=30000,
+        )
+    assert "장기전세주택" in result["title"]
+    assert "무주택세대구성원" in result["text"]
+    # nav/footer 제거
+    assert "SH 메인 메뉴" not in result["text"]
+    assert "SH 푸터" not in result["text"]
+    # 섹션 4개 모두 감지
+    assert set(result["sections"].keys()) == {"자격", "공급일정", "공급금액", "유의사항"}
+
+
+# ─── GH 추출 ───────────────────────────────────────────────────────────
+
+
+def test_gh_board_view():
+    html = _load("gh_view.html")
+    with mock.patch.object(notice_raw.requests, "get", return_value=_fake_response(html)):
+        result = notice_raw.extract_notice_raw(
+            notice_id="gh_001",
+            url="https://www.gh.or.kr/gh/announcement-of-salerental001.do?mode=view&articleNo=64782",
+            max_chars=30000,
+        )
+    assert "행복주택" in result["title"]
+    assert "신혼부부" in result["text"]
+    assert "GH 상단 메뉴" not in result["text"]
+    assert "GH 푸터" not in result["text"]
+    assert len(result["sections"]) >= 2
 
 
 # ─── 캐시 동작 ─────────────────────────────────────────────────────────
