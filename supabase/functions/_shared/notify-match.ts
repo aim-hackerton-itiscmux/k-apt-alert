@@ -7,6 +7,7 @@
 
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import type { Announcement } from "./types.ts";
+import { sendFCM } from "./fcm.ts";
 
 export type NotifyMode = "dday_alert" | "announcement_new";
 
@@ -24,7 +25,6 @@ export interface MatchStats {
   fcm_sent: number;
 }
 
-const FIREBASE_SERVER_KEY = Deno.env.get("FIREBASE_SERVER_KEY") ?? "";
 const NOTIFICATION_DEDUP_HOURS = 24;
 const ANNOUNCEMENT_FETCH_LIMIT = 500;
 
@@ -157,28 +157,6 @@ function buildPlan(mode: NotifyMode, userId: string, ann: Announcement): Notific
   };
 }
 
-async function sendFCM(
-  fcmToken: string,
-  title: string,
-  body: string,
-  data: Record<string, string>,
-): Promise<void> {
-  if (!FIREBASE_SERVER_KEY || !fcmToken) return;
-  try {
-    await fetch("https://fcm.googleapis.com/fcm/send", {
-      method: "POST",
-      headers: {
-        "Authorization": `key=${FIREBASE_SERVER_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ to: fcmToken, notification: { title, body }, data }),
-      signal: AbortSignal.timeout(8_000),
-    });
-  } catch (e) {
-    console.warn("FCM send failed:", e);
-  }
-}
-
 export interface MatchOptions {
   dryRun?: boolean;
   /** undefined면 모든 user_profiles 순회, 명시되면 그 사용자만 */
@@ -251,10 +229,9 @@ export async function runNotifyMatch(
       stats.notifications_created++;
 
       if (user.fcm_token) {
-        await sendFCM(user.fcm_token, plan.title, plan.body, {
-          type: plan.type,
-          announcement_id: plan.related_announcement_id,
-        });
+        // _shared/fcm.ts (HTTP v1, OAuth Service Account) 사용.
+        // data payload는 현재 _shared/fcm.ts 시그니처가 미지원 — title/body만 발송.
+        await sendFCM(user.fcm_token, plan.title, plan.body);
         stats.fcm_sent++;
       }
     }
