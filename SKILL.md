@@ -5,14 +5,12 @@ license: MIT
 metadata:
   category: real-estate
   locale: ko-KR
-  phase: v2.7
-  homepage: https://github.com/tkddnjs-dlqslek/k-apt-alert
-  k_skill_family: NomaDamas/k-skill
+  phase: v1.0
 ---
 
 # 한국 청약 공고 알리미
 
-> **이 파일만 받으셨나요?** 설치 방법 · 사전 조건 · 실제 출력 예시는 [GitHub 레포 README](https://github.com/tkddnjs-dlqslek/k-apt-alert#readme)를 먼저 확인하세요. 이 SKILL.md는 스킬 폴더(Claude Code: `~/.claude/skills/korea-apt-alert/` / Codex: `~/.agents/skills/korea-apt-alert/`)에 배치된 뒤 런타임이 로드할 때 사용되는 지시문입니다. **Claude Code와 OpenAI Codex 모두에서 동일하게 동작합니다.**
+> 한국 청약 공고 조회·분석·알림 서비스입니다. 공공데이터포털 API를 프록시 경유로 통합 조회하며, 사용자 API 키 없이 동작합니다.
 
 공공데이터포털의 청약홈 분양정보 API를 프록시 경유로 조회하여 **사용자 프로필 기반**으로 최신 청약 공고를 필터링·분석·알림한다.
 
@@ -696,7 +694,7 @@ jobs:
 | `exclude_ids` | 제외할 공고 ID (중복 알림 방지) |
 | `reminder` | 리마인더 타입: `d3` / `d1` / `winners` / `contract` |
 
-**채널 선택 (v2.6):**
+**채널 선택:**
 - `webhook_url` 단독 → Slack만
 - `telegram_token` + `telegram_chat_id` 단독 → Telegram만
 - 셋 다 제공 → **양쪽 채널 동시 발송**
@@ -1401,7 +1399,7 @@ if (!(Test-Path $FILE)) { New-Item -ItemType File -Path $FILE | Out-Null }
 | `sh` | SH 공공주택 | 서울주택도시공사 — 장기전세·청년안심·매입임대 | i-sh.co.kr HTML 크롤링 |
 | `gh` | GH 공공주택 | 경기주택도시공사 — 경기행복주택·매입임대 | gh.or.kr HTML 크롤링 |
 
-**v2.7 추가**: `sh`·`gh` 카테고리는 공식 OpenAPI 부재로 각 공사 게시판 HTML 크롤링. 일정 필드(`rcept_end`·`period`)는 상세 페이지에서 별도 파싱 필요 — 현재는 `schedule_source="unavailable"`로 기본 표기. 사용자가 `url`을 클릭해 공식 사이트에서 일정 직접 확인 권장.
+`sh`·`gh` 카테고리는 공식 OpenAPI 부재로 각 공사 게시판 HTML 크롤링. 일정 필드(`rcept_end`·`period`)는 상세 페이지에서 별도 파싱 필요 — 현재는 `schedule_source="unavailable"`로 기본 표기. 사용자가 `url`을 클릭해 공식 사이트에서 일정 직접 확인 권장.
 
 ## 워크플로우
 
@@ -1472,7 +1470,7 @@ curl -s --max-time 180 "https://xnyhzyvigazofjoozuub.supabase.co/functions/v1/an
 }
 ```
 
-**`schedule_source` 필드 (v2.5 신규):**
+**`schedule_source` 필드:**
 - `"api"` — 공공데이터포털 API 응답에서 바로 얻은 일정 (APT 일반분양 대부분)
 - `"html_scraped"` — 청약홈 공고 상세 페이지 HTML 파싱으로 보강 (오피스텔·잔여세대 등 API 누락분)
 - `"unavailable"` — 두 경로 모두 실패, 일정 미확인 (원문 URL 직접 확인 필요)
@@ -1733,4 +1731,4 @@ HIGH 우선순위는 알림음 ON, 나머지는 무음 발송.
 - 프로필: `~/.config/k-skill/apt-alert-profile.json` (로컬 저장, 서버 전송 없음)
 - 데이터 출처: 공공데이터포털 한국부동산원_청약홈 분양정보 조회 서비스
 - API 키: 프록시 서버에서 관리 — 사용자 노출 없음
-- 프록시 소스코드: https://github.com/tkddnjs-dlqslek/k-apt-alert
+- 프록시 소스코드: https://github.com/aim-hackerton-itiscmux/k-apt-alert
