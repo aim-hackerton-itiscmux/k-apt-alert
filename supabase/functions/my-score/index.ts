@@ -64,26 +64,36 @@ Deno.serve(async (req) => {
         return jsonResponse({ error: "Invalid JSON" }, 400);
       }
 
-      const profile: UserProfile = {
-        birth_date:               String(body.birth_date ?? "1990-01-01"),
-        is_married:               Boolean(body.is_married ?? false),
-        marriage_date:            body.marriage_date ? String(body.marriage_date) : undefined,
-        dependents_count:         Number(body.dependents_count ?? 0),
-        is_homeless:              Boolean(body.is_homeless ?? true),
-        homeless_since:           body.homeless_since ? String(body.homeless_since) : undefined,
-        savings_start:            String(body.savings_start ?? "2020-01-01"),
-        savings_balance_wan:      Number(body.savings_balance_wan ?? 0),
-        resident_region:          String(body.resident_region ?? "서울"),
-        has_house:                Boolean(body.has_house ?? false),
-        parents_registered:       Boolean(body.parents_registered ?? false),
-        parents_registered_since: body.parents_registered_since
-          ? String(body.parents_registered_since)
-          : undefined,
-      };
+      // DB에 저장된 기존 profile을 먼저 읽어서 base로 사용.
+      // body에 있는 필드만 override → partial update 안전.
+      const { data: existing } = await db
+        .from("user_profiles")
+        .select("profile")
+        .eq("user_id", user.id)
+        .maybeSingle();
 
-      const score    = calcScore(profile);
+      const base = (existing?.profile ?? {}) as Record<string, unknown>;
+
+      // body 필드가 undefined가 아닌 것만 override (null도 명시적 값으로 허용)
+      const merged: Record<string, unknown> = { ...base };
+      for (const key of Object.keys(body)) {
+        if (key !== "fcm_token" && body[key] !== undefined) {
+          merged[key] = body[key];
+        }
+      }
+
+      // 필수 필드 보정: DB에도 없고 body에도 없으면 의미있는 기본값 대신 오류 반환
+      if (!merged.birth_date) {
+        return jsonResponse({ error: "birth_date 필드가 필요합니다. 프로필을 먼저 저장하세요." }, 400);
+      }
+      if (!merged.savings_start) {
+        return jsonResponse({ error: "savings_start 필드가 필요합니다. 프로필을 먼저 저장하세요." }, 400);
+      }
+
+      const profile = merged as unknown as UserProfile;
+      const score   = calcScore(profile);
+
       const fcmToken = body.fcm_token ? String(body.fcm_token) : undefined;
-
       const upsertData: Record<string, unknown> = {
         user_id: user.id,
         profile,
