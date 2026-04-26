@@ -39,6 +39,8 @@ metadata:
 | "이 공고 분석/해석/요약해줘", "Top 1 자세히", "{공고명} 깊게" | **모집공고 해석자** (notice raw + LLM 요약) |
 | "내 추천", "맞춤 공고", "내 조건에 맞는 추천" (인증 시) | **서버 프로필 기반 추천** (recommendations API) |
 | "프로필 동기화", "내 프로필 업로드" (인증 시) | **로컬 ↔ 서버 user_profiles 동기화** (PATCH /v1/profile) |
+| "알림 새로고침", "내 알림 갱신", "지금 알림 받기" (인증 시) | **본인 프로필 매칭 즉시 실행** (notifications/refresh) |
+| "이 공고 알림 등록", "알림에 추가", "메모 알림" (인증 시) | **수동 알림 추가** (POST /v1/notifications) |
 
 ### 3. 프록시 호출 규칙 (필수)
 
@@ -956,6 +958,78 @@ curl -s --max-time 15 \
 응답의 `unread_count` + `notifications[]`을 그대로 표시. 사용자가 특정 항목 클릭 의도면:
 ```bash
 curl -X PATCH -H "Authorization: ..." ".../notifications/{id}/read"
+```
+
+### 트리거 4 — 알림 즉시 새로고침
+
+cron(매일 KST 06/08시)을 기다리지 않고 사용자가 본인 프로필 매칭을 즉시 실행. `"알림 새로고침"` / `"내 알림 갱신"` / `"지금 알림 받기"` 입력 시:
+
+```bash
+# 모드 1: D-day ≤3 임박 공고 매칭
+curl -s --max-time 30 -X POST \
+  -H "Authorization: Bearer $KAPT_AUTH_TOKEN" \
+  ".../functions/v1/notifications/refresh?mode=dday_alert"
+
+# 모드 2: 최근 24h 신규 공고 매칭
+curl -s --max-time 30 -X POST \
+  -H "Authorization: Bearer $KAPT_AUTH_TOKEN" \
+  ".../functions/v1/notifications/refresh?mode=announcement_new"
+```
+
+응답:
+```json
+{
+  "mode": "dday_alert",
+  "user_id": "uuid",
+  "scanned_announcements": 12,
+  "scanned_users": 1,
+  "notifications_created": 3,
+  "skipped_duplicates": 2,
+  "fcm_sent": 0
+}
+```
+
+24h 내 같은 (type × announcement) 알림이 이미 있으면 `skipped_duplicates`로 카운트 (중복 알림 방지).
+
+**출력 템플릿**:
+```
+🔔 알림 새로고침 완료
+
+📊 결과: 신규 3건 / 중복 스킵 2건 (D-day ≤3 임박 공고 12건 스캔)
+
+💡 받은 알림 보려면: "내 알림"
+```
+
+### 트리거 5 — 수동 알림 추가
+
+특정 공고를 즐겨찾기로 표시하거나 메모성 알림을 본인에게 직접 등록. `"이 공고 알림 등록"` / `"알림에 추가"` / `"메모 알림"` 입력 시:
+
+```bash
+curl -s --max-time 15 -X POST \
+  -H "Authorization: Bearer $KAPT_AUTH_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "favorite_dday",
+    "title": "[D-2] 래미안 원펜타스",
+    "body": "서울 서초구 · 민영 · 350세대 — 즐겨찾기 마감 임박",
+    "link": "/app/notice/apt_2026000123",
+    "related_announcement_id": "apt_2026000123"
+  }' \
+  ".../functions/v1/notifications"
+```
+
+**type 화이트리스트** (서버 검증):
+- `user_memo` — 사용자 메모 알림
+- `favorite_dday` — 즐겨찾기 공고 D-day
+- `test` — 테스트
+
+**제한**: title 최대 200자, body 최대 1000자. 인증된 본인 user_id로만 INSERT 가능 (RLS).
+
+**출력**:
+```
+✅ 알림 등록 완료 (type: favorite_dday)
+
+🔔 다음 "내 알림" 조회 시 표시됨
 ```
 
 ### 보안·프라이버시
