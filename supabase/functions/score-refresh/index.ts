@@ -26,24 +26,24 @@ async function sendFCM(fcmToken: string, title: string, body: string): Promise<v
   }
 }
 
-/** notifications 테이블에 인앱 알림 저장 (006 마이그레이션 이후 동작). */
+/** notifications 테이블에 인앱 알림 저장. */
 async function insertNotification(
   db: ReturnType<typeof getSupabaseClient>,
   userId: string,
   title: string,
   body: string,
-): Promise<void> {
-  try {
-    await db.from("notifications").insert({
-      user_id: userId,  // TEXT → UUID 자동 캐스트 (유효한 UUID 형식 보장)
-      type: "score_update",
-      title,
-      body,
-    });
-  } catch (e) {
-    // 006 마이그레이션 전이거나 user_id 타입 불일치 시 조용히 넘어감
-    console.warn("notifications insert skipped:", e);
+): Promise<boolean> {
+  const { error } = await db.from("notifications").insert({
+    user_id: userId,
+    type: "score_update",
+    title,
+    body,
+  });
+  if (error) {
+    console.error(`notifications insert failed for ${userId}:`, error.message);
+    return false;
   }
+  return true;
 }
 
 Deno.serve(async (req) => {
@@ -93,9 +93,7 @@ Deno.serve(async (req) => {
         // FCM 푸시
         if (row.fcm_token) await sendFCM(row.fcm_token, title, body);
 
-        // 인앱 알림 저장 (006 마이그레이션 이후)
-        await insertNotification(db, row.user_id, title, body);
-        notified++;
+        if (await insertNotification(db, row.user_id, title, body)) notified++;
       }
     }
 
@@ -106,8 +104,7 @@ Deno.serve(async (req) => {
       const body  = `${fieldLabel} 증가로 곧 가점이 오릅니다. 앱에서 확인해보세요.`;
 
       if (row.fcm_token) await sendFCM(row.fcm_token, title, body);
-      await insertNotification(db, row.user_id, title, body);
-      notified++;
+      if (await insertNotification(db, row.user_id, title, body)) notified++;
     }
   }
 
