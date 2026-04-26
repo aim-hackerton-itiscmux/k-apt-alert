@@ -41,6 +41,13 @@ metadata:
 | "프로필 동기화", "내 프로필 업로드" (인증 시) | **로컬 ↔ 서버 user_profiles 동기화** (PATCH /v1/profile) |
 | "알림 새로고침", "내 알림 갱신", "지금 알림 받기" (인증 시) | **본인 프로필 매칭 즉시 실행** (notifications/refresh) |
 | "이 공고 알림 등록", "알림에 추가", "메모 알림" (인증 시) | **수동 알림 추가** (POST /v1/notifications) |
+| "내 자격 확인", "이 공고 부적격 위험" + 공고명 (인증 시) | **부적격 사전검증** (eligibility-precheck) |
+| "5단계 시뮬레이션", "당첨까지 단계", "이 공고 단계별" + 공고명 | **청약 시뮬레이션** (simulate) |
+| "공고 비교", "{A} vs {B}", "이 두 공고 표로" | **공고 비교 표** (compare) |
+| "비슷한 공고", "유사 공고", "경쟁률 예측" + 공고명 | **유사공고 + 경쟁률 예측** (similar-listings) |
+| "내 가점", "확정 가점", "가점 계산" (인증 시) | **가점 트래커** (my-score, GET 본인 / POST 갱신) |
+| "이 공고 분석 후 저장", "리포트 저장" + 공고명 (인증 시) | **AI 리포트 저장 워크플로우** (notice/raw + LLM + POST /reports) |
+| "내 리포트", "내 분석 이력" (인증 시) | **AI 리포트 이력** (GET /v1/reports) |
 
 ### 3. 프록시 호출 규칙 (필수)
 
@@ -1049,6 +1056,263 @@ curl -s --max-time 15 -X POST \
 
 서버 동기화 원하시면: 청약 코파일럿 앱 → 마이페이지 → CLI 토큰 발급
 ```
+
+---
+
+## 청약 분석 도구 (서버 기능 통합)
+
+main 백엔드에 운영 중인 **5개 청약 분석 Edge Function**을 SKILL이 호출. 일부는 인증 필수, 일부는 무인증. AI 리포트 저장 워크플로우 포함.
+
+### 도구 1 — 부적격 사전검증 (eligibility-precheck)
+
+`"내 자격 확인"` / `"{공고명} 부적격 위험"` / `"이 공고 신청 가능한가"` 입력 시:
+
+```bash
+curl -s --max-time 30 -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "announcement_id": "apt_2026000123",
+    "birth_date": "1991-04-26",
+    "is_married": true,
+    "marriage_date": "2020-03-01",
+    "dependents_count": 2,
+    "is_homeless": true,
+    "homeless_since": "2018-01-01",
+    "savings_start": "2020-01-01",
+    "savings_balance_wan": 660,
+    "resident_region": "서울",
+    "has_house": false,
+    "parents_registered": false
+  }' \
+  ".../functions/v1/eligibility-precheck"
+```
+
+**응답**: `{ score, warnings: [{field, severity: 'critical'|'warning'|'info', message, detail}] }`
+
+**입력 매핑**: 사용자 프로필(`~/.config/k-skill/apt-alert-profile.json`) → 위 필드. 누락 시 합리적 default 사용.
+
+**출력 템플릿**:
+```
+🔍 [공고명] — 부적격 사전검증
+
+📊 가점: 54점 (무주택 14점 / 부양가족 15점 / 통장 17점)
+
+⚠️ Critical (신청 차단 위험)
+• {field}: {message}
+  → {detail}
+
+🟡 Warning (주의)
+• {field}: {message}
+
+💡 수정 가능한 부분: 청약통장 가입기간을 X개월 더 채우면 +Y점 가능
+```
+
+`critical` 1건이라도 있으면 **신청 비추천** 명시. `warning`은 참고 안내.
+
+### 도구 2 — 청약 시뮬레이션 (simulate)
+
+`"5단계 시뮬레이션"` / `"{공고명} 당첨까지"` 입력 시:
+
+```bash
+curl -s --max-time 30 -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "announcement_id": "apt_2026000123",
+    "supply_type": "일반공급",
+    "user_profile": { ...UserProfile 필드 동일... }
+  }' \
+  ".../functions/v1/simulate"
+```
+
+`supply_type`: `"일반공급"` / `"신혼부부 특별공급"` / `"생애최초 특별공급"` / `"다자녀 특별공급"` / `"노부모부양 특별공급"`
+
+**응답**: 5단계(자격검증 → 청약접수 → 추첨/가점 → 당첨자 발표 → 계약) 각 단계별 통과 가능성 + 필요 서류 + 주의사항.
+
+**출력 템플릿**: 각 단계를 ✅/⚠️/❌ 아이콘과 함께 표시. 막힌 단계가 있으면 빨간색 강조.
+
+### 도구 3 — 공고 비교 (compare)
+
+`"이 두 공고 비교"` / `"{A} vs {B}"` / `"{A}, {B}, {C} 비교"` (2~5개) 입력 시:
+
+```bash
+# id는 직전 announcements 응답에서 가져옴
+curl -s --max-time 30 \
+  ".../functions/v1/compare?ids=apt_2026000123,apt_2026000456"
+```
+
+**응답**: 공고별 기본 정보 + price_assessment + location_score + school_zone + commute 캐시 데이터를 한 표로.
+
+**출력 템플릿**:
+```
+📊 공고 비교 (2건)
+
+| 항목 | 래미안 원펜타스 | OO 자이 |
+|------|--------------|---------|
+| 지역 | 서울 서초구 | 서울 강동구 |
+| 세대수 | 641 | 350 |
+| 분상제 | Y | N |
+| 분양가 평가 | 적정 (-12% vs 시세) | 고가 (+8%) |
+| 입지 점수 | 88 | 72 |
+| 학군 (반경 500m) | 우수 | 보통 |
+| 통근(강남역) | 12분 | 28분 |
+
+→ **추천**: A (분양가·입지·통근 모두 우수)
+```
+
+### 도구 4 — 유사공고 + 경쟁률 예측 (similar-listings)
+
+`"비슷한 공고"` / `"{공고명} 경쟁률"` / `"유사 공고 추천"` 입력 시:
+
+```bash
+curl -s --max-time 60 \
+  ".../functions/v1/similar-listings?announcement_id=apt_2026000123&max_results=5"
+```
+
+**응답**: 유사 공고 목록 + 과거 경쟁률·당첨가점 + Gemini LLM 분석 코멘트.
+
+**출력 템플릿**:
+```
+🔍 [공고명] 유사 공고 분석
+
+📊 과거 경쟁률 (유사 공고 5건 기반)
+• 평균 경쟁률: 24.3:1
+• 평균 당첨 가점: 62점
+• 본인 가점(54점) 기준: 당첨 확률 약 30~40%
+
+🤖 AI 분석:
+{gemini 코멘트}
+
+📋 유사 공고 목록
+1. {name} (서울·{date}) — 경쟁률 18:1, 당첨 60점
+2. ...
+```
+
+### 도구 5 — 가점 트래커 (my-score, 인증 필수)
+
+`"내 가점"` / `"확정 가점 계산"` 입력 시:
+
+```bash
+# GET — 저장된 프로필 + 가점 조회
+curl -s -H "Authorization: Bearer $KAPT_AUTH_TOKEN" \
+  ".../functions/v1/my-score"
+
+# POST — 프로필 갱신 + 즉시 재계산
+curl -s -X POST \
+  -H "Authorization: Bearer $KAPT_AUTH_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{ ...UserProfile 필드... }' \
+  ".../functions/v1/my-score"
+```
+
+**응답**: `{ score: { homeless_years, homeless_score, dependents_score, savings_months, savings_score, total, next_upgrade }, upcoming_alert }`
+
+**출력 템플릿**:
+```
+📊 청약가점 (확정)
+
+• 무주택 기간 7년 → 16점 (max 32)
+• 부양가족 2명 → 15점 (max 35)
+• 통장 가입 5년 6개월 → 11점 (max 17)
+
+총 42점 / 84점 (50%)
+
+🔔 35일 후 +2점 예정 (무주택 8년 진입)
+```
+
+`next_upgrade.days_until ≤ 35`이면 **upcoming_alert** 안내 표시.
+
+### 도구 6 — AI 리포트 저장 워크플로우
+
+`"이 공고 분석 후 저장"` / `"{공고명} 리포트 저장"` 입력 시 (인증 필수):
+
+**워크플로우** (SKILL이 한 흐름으로 처리):
+1. `notice/raw` 호출 → raw 텍스트 추출
+2. 사용자 프로필 + raw로 LLM 분석 (이 SKILL 자체)
+3. summary_markdown 작성
+4. `POST /v1/reports`로 저장:
+   ```bash
+   curl -s -X POST \
+     -H "Authorization: Bearer $KAPT_AUTH_TOKEN" \
+     -H "Content-Type: application/json" \
+     -d '{
+       "notice_id": "apt_2026000123",
+       "notice_url": "https://www.applyhome.co.kr/...",
+       "title": "래미안 원펜타스 분석",
+       "summary_markdown": "## 너에게 해당\\n- ...\\n## 주의\\n- ...\\n",
+       "raw_excerpt": "{raw 텍스트 일부 5K자 정도}",
+       "matched_profile_snapshot": { ...현재 프로필 스냅샷... }
+     }' \
+     ".../functions/v1/reports"
+   ```
+
+**reports 테이블 UPDATE 정책 없음** → 한 번 저장하면 수정 불가 (시점 기록). 다시 저장하면 새 row 생성.
+
+### 도구 7 — AI 리포트 이력 (인증 필수)
+
+`"내 리포트"` / `"분석 이력"` 입력 시:
+
+```bash
+curl -s -H "Authorization: Bearer $KAPT_AUTH_TOKEN" \
+  ".../functions/v1/reports?limit=20"
+```
+
+**응답** (목록은 본문 제외, 페이로드 절감): `[{id, notice_id, title, match_score, created_at}]`
+
+특정 리포트 상세는:
+```bash
+curl -s -H "Authorization: Bearer $KAPT_AUTH_TOKEN" \
+  ".../functions/v1/reports/{id}"
+```
+
+**출력 템플릿**:
+```
+📑 내 분석 이력 (12건)
+
+1. 래미안 원펜타스 (2026-04-15) — 매칭 75점
+2. OO 자이 (2026-04-12) — 매칭 68점
+...
+
+💡 자세히 보려면: "1번 리포트" 또는 ID 직접 입력
+```
+
+### 통합 흐름 — 한 사용자 시나리오
+
+```
+사용자: "공고 보여줘"
+  → announcements API
+  → "1. 래미안 원펜타스 ..."
+
+사용자: "1번 부적격 검증"
+  → eligibility-precheck — critical 0건, warning 1건
+  → "신청 가능"
+
+사용자: "1번 분석 후 저장"
+  → notice/raw → LLM 분석 → POST /reports
+  → "리포트 저장됨 (id: ...)"
+
+사용자: "비슷한 공고"
+  → similar-listings — 경쟁률 예측
+  → "본인 가점 기준 당첨 확률 30~40%"
+
+사용자: "1번 vs OO자이"
+  → compare — 표로 출력
+
+사용자: "내 리포트"
+  → GET /reports — 이력 표시
+```
+
+### 인증 필요 여부
+
+| 도구 | 인증 |
+|------|------|
+| eligibility-precheck | ❌ (body로 프로필 받음) |
+| simulate | ❌ |
+| compare | ❌ |
+| similar-listings | ❌ |
+| my-score | ✅ (본인 user_profiles 필요) |
+| reports 저장·조회 | ✅ |
+
+인증 토큰 없으면 1~4번은 그대로 사용 가능. 5~7번은 "토큰 필요" 안내.
 
 ---
 
