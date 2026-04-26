@@ -6,7 +6,7 @@
  *
  * 또는 옵셔널 인증:
  *   const user = await getUserOrNull(req);
- *   if (user) { ... } else { /* 익명 흐름 */ }
+ *   if (user) { ... } else { 익명 흐름 처리 }
  *
  * 설계:
  * - service_role 클라이언트로 토큰 검증 (auth.getUser는 anon key로도 동작하지만 일관성)
