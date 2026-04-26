@@ -30,4 +30,4 @@ NOTICE_RAW_DAILY_LIMIT_FREE = 1000
 NOTICE_RAW_HTTP_TIMEOUT = 15
 TIER_LIMITS = {"free": 30000, "paid": 80000}
 NOTICE_MAX_CHARS_DEFAULT = 30000
-NOTICE_SUPPORTED_HOSTS = ("applyhome.co.kr", "apply.lh.or.kr")
+NOTICE_SUPPORTED_HOSTS = ("applyhome.co.kr", "apply.lh.or.kr", "i-sh.co.kr", "gh.or.kr")

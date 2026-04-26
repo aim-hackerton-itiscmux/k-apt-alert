@@ -15,7 +15,7 @@ const NOTICE_RAW_DAILY_LIMIT_FREE = 1000;
 const TIER_LIMITS: Record<string, number> = { free: 30000, paid: 80000 };
 const NOTICE_MAX_CHARS_DEFAULT = 30000;
 const NOTICE_HTTP_TIMEOUT_MS = 15000;
-const SUPPORTED_HOSTS = ["applyhome.co.kr", "apply.lh.or.kr"];
+const SUPPORTED_HOSTS = ["applyhome.co.kr", "apply.lh.or.kr", "i-sh.co.kr", "gh.or.kr"];
 
 const SECTION_PATTERNS: Array<[string, RegExp]> = [
   ["자격", /(?:신청\s*자격|입주자\s*자격|자격\s*요건|공급\s*대상)/g],
@@ -34,11 +34,13 @@ function isSupportedHost(url: string): boolean {
   }
 }
 
-function pickExtractorHost(url: string): "applyhome" | "lh" | null {
+function pickExtractorHost(url: string): "applyhome" | "lh" | "sh" | "gh" | null {
   try {
     const host = new URL(url).hostname.toLowerCase();
     if (host.includes("applyhome.co.kr")) return "applyhome";
     if (host.includes("apply.lh.or.kr")) return "lh";
+    if (host.includes("i-sh.co.kr")) return "sh";
+    if (host.includes("gh.or.kr")) return "gh";
   } catch {}
   return null;
 }
@@ -92,6 +94,38 @@ function extractLh(html: string): { title: string; text: string } {
   const title = extractTitle(html);
   const containerMatch = html.match(
     /<(?:div|section)[^>]*(?:class|id)=["'][^"']*(?:board-view|view-content|view-cont|content|bbs-view|cont-area)[^"']*["'][^>]*>([\s\S]*?)<\/(?:div|section)>/i,
+  );
+  const body = containerMatch ? containerMatch[1] : html;
+  return { title, text: stripHtml(body) };
+}
+
+/** SH (i-sh.co.kr) 게시판 view.do 상세 페이지 추출.
+ *
+ * 페이지 구조 (관찰):
+ * - URL: /app/lay2/program/.../brd/m_247/view.do?seq=...&multi_itm_seq=1|2
+ * - 본문 컨테이너 후보: .board_view / .view_cont / .bbs_view / #content / .cont_view
+ * - 셀렉터 실패 시 body fallback (stripHtml 안전장치)
+ */
+function extractSh(html: string): { title: string; text: string } {
+  const title = extractTitle(html);
+  const containerMatch = html.match(
+    /<(?:div|section)[^>]*(?:class|id)=["'][^"']*(?:board[_-]?view|view[_-]?cont|bbs[_-]?view|cont[_-]?view|board[_-]?cont|content)[^"']*["'][^>]*>([\s\S]*?)<\/(?:div|section)>/i,
+  );
+  const body = containerMatch ? containerMatch[1] : html;
+  return { title, text: stripHtml(body) };
+}
+
+/** GH (gh.or.kr) announcement-of-salerental001.do 상세 페이지 추출.
+ *
+ * 페이지 구조 (관찰):
+ * - URL: /gh/announcement-of-salerental001.do?mode=view&articleNo=...
+ * - 본문 컨테이너 후보: .board_view / .view_content / .bbs_view / .table_view / #content
+ * - 게시판 패턴 SH와 유사하나 클래스 변형 가능
+ */
+function extractGh(html: string): { title: string; text: string } {
+  const title = extractTitle(html);
+  const containerMatch = html.match(
+    /<(?:div|section|article)[^>]*(?:class|id)=["'][^"']*(?:board[_-]?view|view[_-]?content|bbs[_-]?view|table[_-]?view|view[_-]?cont|content[_-]?view|content)[^"']*["'][^>]*>([\s\S]*?)<\/(?:div|section|article)>/i,
   );
   const body = containerMatch ? containerMatch[1] : html;
   return { title, text: stripHtml(body) };
@@ -222,6 +256,8 @@ async function fetchAndExtract(
     const which = pickExtractorHost(url);
     if (which === "applyhome") return extractApplyhome(html);
     if (which === "lh") return extractLh(html);
+    if (which === "sh") return extractSh(html);
+    if (which === "gh") return extractGh(html);
     throw new Error(`no extractor for ${url}`);
   } finally {
     clearTimeout(timer);
@@ -294,7 +330,7 @@ Deno.serve(async (req) => {
       return jsonResponse(
         {
           error:
-            `unsupported host. Phase 1 supports applyhome.co.kr and apply.lh.or.kr only. Got: ${resolvedUrl}`,
+            `unsupported host. Supported: applyhome.co.kr, apply.lh.or.kr, i-sh.co.kr, gh.or.kr. Got: ${resolvedUrl}`,
         },
         400,
       );
