@@ -250,7 +250,7 @@ def filter_anns(prof, anns):
 def main():
     # Warmup (Render free tier 슬립 회피)
     try:
-        requests.get(f"{PROXY}/health", timeout=60)
+        requests.get(f"{PROXY}/health", timeout=15)
     except Exception as e:
         print(f"[warn] warmup failed: {e}")
 
@@ -258,7 +258,7 @@ def main():
     anns = []
     for attempt in range(3):
         try:
-            resp = requests.get(f"{PROXY}/v1/apt/announcements", params={
+            resp = requests.get(f"{PROXY}/announcements", params={
                 "category": "all", "active_only": "false", "months_back": "2"
             }, timeout=120)
             resp.raise_for_status()

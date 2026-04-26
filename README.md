@@ -146,7 +146,7 @@ KSKILL_APT_TELEGRAM_CHAT_ID=-1001234567890
 GitHub Actions·cron 등에서 매일 호출 (한글 파라미터는 반드시 퍼센트 인코딩):
 ```bash
 # region=서울,경기,인천 → 퍼센트 인코딩
-curl -X POST "https://k-apt-alert-proxy.onrender.com/v1/apt/notify?webhook_url=...&region=%EC%84%9C%EC%9A%B8,%EA%B2%BD%EA%B8%B0,%EC%9D%B8%EC%B2%9C&reminder=d3"
+curl -X POST "https://xnyhzyvigazofjoozuub.supabase.co/functions/v1/notify?webhook_url=...&region=%EC%84%9C%EC%9A%B8,%EA%B2%BD%EA%B8%B0,%EC%9D%B8%EC%B2%9C&reminder=d3"
 ```
 
 📘 **자동화 전체 가이드**: [`examples/user-automation/`](./examples/user-automation/) — 본인 GitHub 계정에 **빈 repo 1개 + yaml 파일 1개**만 올리면 매일 오전 7시(KST) 자동 발송 (Fork 불필요, 5분 셋업)
@@ -217,10 +217,10 @@ curl -X POST "https://k-apt-alert-proxy.onrender.com/v1/apt/notify?webhook_url=.
 ### 스킬 (사용자가 설치)
 - [`SKILL.md`](SKILL.md) — 전체 워크플로우, 프로필 스키마, 자격 매칭 로직, 가점 계산, Top 3 추천, D-day, 인접 지역 확장 등
 
-### 프록시 서버 (운영자가 배포)
-- [`proxy/main.py`](proxy/main.py) — FastAPI 엔드포인트
-- [`proxy/crawlers/`](proxy/crawlers/) — 6종 공공데이터포털 API 크롤러
-- [`.github/workflows/warmup.yml`](.github/workflows/warmup.yml) — Render 슬립 방지 cron (12분 간격)
+### Supabase 백엔드 (운영자가 배포)
+- [`supabase/functions/`](supabase/functions/) — 14개 Supabase Edge Functions (크롤러 9 + API 5)
+- [`supabase/functions/_shared/`](supabase/functions/_shared/) — 공유 모듈 (HTTP, 표준화, 필터, 알림)
+- [`supabase/migrations/`](supabase/migrations/) — PostgreSQL 스키마 + pg_cron 스케줄
 - [`.github/workflows/test.yml`](.github/workflows/test.yml) — mock 테스트 + E2E CI
 
 ### 페르소나 E2E 테스트
@@ -228,17 +228,17 @@ curl -X POST "https://k-apt-alert-proxy.onrender.com/v1/apt/notify?webhook_url=.
 
 ## 프록시 API
 
-**운영 중**: https://k-apt-alert-proxy.onrender.com
+**운영 중**: https://xnyhzyvigazofjoozuub.supabase.co/functions/v1
 
 | 엔드포인트 | 설명 |
 |-----------|------|
-| `GET /health` | 서버 상태 확인 (warmup용) |
-| `GET /v1/apt/categories` | 카테고리 6종 목록 |
-| `GET /v1/apt/announcements` | 청약 공고 조회 |
-| `POST /v1/apt/notify` | Slack Webhook 발송 |
-| `GET /v1/apt/cache` | 캐시·일일 호출 카운터 상태 (디버그) |
+| `GET /functions/v1/health` | 서버 상태 확인 |
+| `GET /functions/v1/categories` | 카테고리 8종 목록 |
+| `GET /functions/v1/announcements` | 청약 공고 조회 |
+| `POST /functions/v1/notify` | Slack/Telegram 발송 |
+| `GET /functions/v1/cache-status` | 크롤 메타데이터·일일 호출 카운터 상태 (디버그) |
 
-**쿼리 파라미터** (`/v1/apt/announcements`, `/v1/apt/notify` 공통):
+**쿼리 파라미터** (`/functions/v1/announcements`, `/functions/v1/notify` 공통):
 
 | 파라미터 | 기본값 | 설명 |
 |---------|--------|------|
@@ -261,29 +261,29 @@ curl -X POST "https://k-apt-alert-proxy.onrender.com/v1/apt/notify?webhook_url=.
 | 오피스텔/도시형, LH, 잔여세대, 임의공급 | 실시간 | 10분 |
 | SH(서울) · GH(경기) 공공주택 | HTML 크롤링 | 30분 |
 
-## 프록시 서버 (운영자용)
+## Supabase 백엔드 (운영자용)
 
 ### 로컬 실행
 ```bash
-cd proxy
-pip install -r requirements.txt
-DATA_GO_KR_API_KEY=your_key uvicorn main:app --reload
-# http://localhost:8000/docs 에서 API 문서 확인
+supabase start                      # 로컬 DB + Edge Functions 실행
+supabase functions serve             # Edge Functions 핫리로드
+# http://localhost:54321/functions/v1/health 에서 확인
 ```
 
-### Render 배포
-1. GitHub에 이 레포를 push
-2. Render Dashboard → New Web Service → Connect repo
-3. Environment Variable 등록:
-   - `DATA_GO_KR_API_KEY` (필수) — [공공데이터포털](https://www.data.go.kr/) 무료 발급
-   - `SENTRY_DSN` (선택) — 에러 모니터링
+### Supabase 배포
+```bash
+supabase link --project-ref xnyhzyvigazofjoozuub
+supabase secrets set DATA_GO_KR_API_KEY=your_key
+supabase db push                     # 마이그레이션 적용
+supabase functions deploy --no-verify-jwt  # 14개 Edge Functions 배포
+```
 
 ### 운영 보호 장치
-- **병렬 fetch**: 6개 카테고리 동시 크롤링 (ThreadPoolExecutor)
-- **카테고리별 TTL**: apt 60분 / pbl_pvt_rent 30분 / 나머지 10분
-- **Stale fallback**: fetch 실패 시 만료된 캐시라도 반환 (가용성 우선)
-- **일일 rate limit**: 9000건 초과 시 stale 캐시만 반환
-- **12분 간격 warmup**: Render free tier 슬립 방지
+- **PostgreSQL 영속 캐시**: 서버 재시작과 무관하게 데이터 유지
+- **pg_cron 자동 크롤링**: 10분 간격으로 8개 크롤러 독립 실행
+- **카테고리별 TTL**: apt 60분 / pbl_pvt_rent·sh·gh 30분 / 나머지 10분
+- **일일 rate limit**: 9000건 초과 시 DB 기반 카운터로 보호
+- **RLS**: 공고 데이터 공개 읽기, 쓰기는 service_role_key만 허용
 
 ## 보안·프라이버시
 
@@ -294,8 +294,8 @@ DATA_GO_KR_API_KEY=your_key uvicorn main:app --reload
 
 ## FAQ
 
-**Q. 프록시 서버가 응답하지 않아요**
-A. Render free tier는 15분 비활성 시 슬립합니다. warmup cron이 12분 간격으로 핑을 보내지만, 자정~새벽 등은 슬립 상태일 수 있습니다. 첫 호출이 30초~2분 걸릴 수 있습니다.
+**Q. API 서버가 응답하지 않아요**
+A. Supabase Edge Functions는 항상 활성 상태입니다 (Render free tier와 달리 슬립 없음). 응답이 없다면 Supabase 대시보드에서 Edge Functions 로그를 확인하세요.
 
 **Q. 가점 계산이 정확한가요?**
 A. 프로필 기반 추정치입니다. 만 30세 ↔ 혼인신고일 중 늦은 해 기산, 통장 미성년 가입분 최대 2년 인정 등 주요 규칙은 반영되어 있지만, 부양가족 직계존속 3년 동일 세대 등록 요건은 자동 확인이 불가합니다. 정확한 가점은 [청약홈](https://www.applyhome.co.kr)에서 조회하세요.

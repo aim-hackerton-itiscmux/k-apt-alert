@@ -21,7 +21,7 @@ on:
   workflow_dispatch:  # 수동 실행 버튼
 
 env:
-  PROXY_URL: https://k-apt-alert-proxy.onrender.com
+  PROXY_URL: https://xnyhzyvigazofjoozuub.supabase.co/functions/v1
   # 본인 조건에 맞게 수정
   REGION: "서울,경기,인천"
   DISTRICT: ""                # 예: "강남구,서초구" (비우면 전체)
@@ -56,7 +56,7 @@ jobs:
             Q="${Q}&telegram_chat_id=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))" "$TG_CHAT")"
           fi
 
-          URL="${{ env.PROXY_URL }}/v1/apt/notify?${Q}"
+          URL="${{ env.PROXY_URL }}/notify?${Q}"
           echo "Calling proxy (secrets redacted)..."
 
           response=$(curl -sS --max-time 180 -X POST "$URL")

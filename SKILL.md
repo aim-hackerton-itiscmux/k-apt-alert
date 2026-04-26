@@ -40,7 +40,7 @@ metadata:
 ### 3. 프록시 호출 규칙 (필수)
 
 **타임아웃**
-- `/v1/apt/announcements` 호출은 **반드시 `--max-time 180`** 이상 (cold cache + apt 크롤링은 60~120초 소요 가능)
+- `/functions/v1/announcements` 호출은 **반드시 `--max-time 180`** 이상 (cold cache + apt 크롤링은 60~120초 소요 가능)
 - `/health`는 `--max-time 15`면 충분 (하지만 기본적으로 호출 금지)
 - 30초·60초·90초 타임아웃은 **쓰지 말 것** — cold 상태에서 확정적으로 실패
 
@@ -585,7 +585,7 @@ chmod 600 ~/.config/k-skill/*.json 2>/dev/null || true
 | "즐겨찾기 제거", `fav remove <ID>` | `ids`에서 제거 |
 | "관심 공고 변동 체크", `fav diff` | 저장된 ID 중 마감 임박/마감/당첨발표 등 상태 변동 공고 하이라이트 |
 
-구현 힌트: `fav list`는 `GET /v1/apt/announcements?category=all&active_only=false` 호출 후 `ids`와 교집합.
+구현 힌트: `fav list`는 `GET /functions/v1/announcements?category=all&active_only=false` 호출 후 `ids`와 교집합.
 
 ---
 
@@ -616,7 +616,7 @@ chmod 600 ~/.config/k-skill/*.json 2>/dev/null || true
 ### 프록시 엔드포인트 연동
 프록시의 `exclude_ids` 파라미터에 7일 이내 발송 완료된 ID 목록을 넘기면 서버 사이드에서도 사전 제외 가능:
 ```
-POST /v1/apt/notify?...&exclude_ids=2026000123,2026000456
+POST /functions/v1/notify?...&exclude_ids=2026000123,2026000456
 ```
 
 ---
@@ -646,11 +646,11 @@ Claude Code 터미널에서:
 
 ### 방법 2: 프록시 서버 자동 알림 API (세션 불필요)
 
-프록시 서버의 `/v1/apt/notify` 엔드포인트를 외부 스케줄러에서 호출:
+프록시 서버의 `/functions/v1/notify` 엔드포인트를 외부 스케줄러에서 호출:
 
 ```bash
 # cron, GitHub Actions, n8n 등에서 매일 아침 호출
-curl -X POST "https://k-apt-alert-proxy.onrender.com/v1/apt/notify?webhook_url=https://hooks.slack.com/services/T.../B.../xxx&region=서울,경기,인천&active_only=true"
+curl -X POST "https://xnyhzyvigazofjoozuub.supabase.co/functions/v1/notify?webhook_url=https://hooks.slack.com/services/T.../B.../xxx&region=서울,경기,인천&active_only=true"
 ```
 
 **GitHub Actions 예시** (`.github/workflows/apt-notify.yml`):
@@ -666,7 +666,7 @@ jobs:
     steps:
       - name: Send notification
         run: |
-          curl -X POST "${{ secrets.PROXY_URL }}/v1/apt/notify?webhook_url=${{ secrets.SLACK_WEBHOOK }}&region=서울,경기,인천&active_only=true"
+          curl -X POST "${{ secrets.PROXY_URL }}/functions/v1/notify?webhook_url=${{ secrets.SLACK_WEBHOOK }}&region=서울,경기,인천&active_only=true"
 ```
 
 **파라미터:**
@@ -704,13 +704,13 @@ D-day 기준 마감 임박순 정렬, 최대 10건 발송. D-1 이하는 🔴, D
 
 **macOS / Linux (cron)** — `crontab -e`에 추가:
 ```
-0 7 * * * curl -sS --max-time 60 -X POST "https://k-apt-alert-proxy.onrender.com/v1/apt/notify?webhook_url=$(grep ^KSKILL_APT_SLACK_WEBHOOK= ~/.config/k-skill/secrets.env | cut -d= -f2-)&region=서울,경기,인천&reminder=d3" >> ~/.config/k-skill/apt-alert.log 2>&1
+0 7 * * * curl -sS --max-time 60 -X POST "https://xnyhzyvigazofjoozuub.supabase.co/functions/v1/notify?webhook_url=$(grep ^KSKILL_APT_SLACK_WEBHOOK= ~/.config/k-skill/secrets.env | cut -d= -f2-)&region=서울,경기,인천&reminder=d3" >> ~/.config/k-skill/apt-alert.log 2>&1
 ```
 
 **Windows Task Scheduler**:
 1. 작업 스케줄러 → 기본 작업 만들기
 2. 트리거: 매일 오전 7시
-3. 동작: `powershell.exe -Command "Invoke-RestMethod -Uri 'https://k-apt-alert-proxy.onrender.com/v1/apt/notify?webhook_url=...&region=...&reminder=d3' -Method Post"`
+3. 동작: `powershell.exe -Command "Invoke-RestMethod -Uri 'https://xnyhzyvigazofjoozuub.supabase.co/functions/v1/notify?webhook_url=...&region=...&reminder=d3' -Method Post"`
 
 PC 꺼진 시간엔 발송 안 됨. 항상 돌아가는 환경 필요.
 
@@ -725,7 +725,7 @@ PC 꺼진 시간엔 발송 안 됨. 항상 돌아가는 환경 필요.
 
 예시: 매일 오전 7시 D-3 임박 공고 알림
 ```
-curl -X POST ".../v1/apt/notify?webhook_url=...&region=서울&reminder=d3"
+curl -X POST ".../functions/v1/notify?webhook_url=...&region=서울&reminder=d3"
 ```
 
 ---
@@ -823,7 +823,7 @@ if (!(Test-Path $FILE)) { New-Item -ItemType File -Path $FILE | Out-Null }
 
 GitHub Actions가 12분마다 `/health` ping을 보내 Render 슬립을 방지하므로 **일반적으로 불필요**. 공고 조회가 30초 이상 실패할 때만 수동 웜업:
 ```bash
-curl -s --max-time 60 "https://k-apt-alert-proxy.onrender.com/health"
+curl -s --max-time 60 "https://xnyhzyvigazofjoozuub.supabase.co/functions/v1/health"
 ```
 그 외에는 바로 1단계로 진행한다.
 
@@ -841,16 +841,16 @@ curl -s --max-time 60 "https://k-apt-alert-proxy.onrender.com/health"
 
 ```bash
 # 전체 조회 — 반드시 --max-time 180 이상, URL은 "..." 단일 스트링
-curl -s --max-time 180 "https://k-apt-alert-proxy.onrender.com/v1/apt/announcements?category=all&active_only=true"
+curl -s --max-time 180 "https://xnyhzyvigazofjoozuub.supabase.co/functions/v1/announcements?category=all&active_only=true"
 
 # 특정 카테고리
-curl -s --max-time 180 "https://k-apt-alert-proxy.onrender.com/v1/apt/announcements?category=apt&active_only=true"
+curl -s --max-time 180 "https://xnyhzyvigazofjoozuub.supabase.co/functions/v1/announcements?category=apt&active_only=true"
 
 # 지역 필터 (복수 가능, 쉼표 구분)
-curl -s --max-time 180 "https://k-apt-alert-proxy.onrender.com/v1/apt/announcements?region=서울,경기,인천"
+curl -s --max-time 180 "https://xnyhzyvigazofjoozuub.supabase.co/functions/v1/announcements?region=서울,경기,인천"
 
 # 세부 지역(구/군) 필터
-curl -s --max-time 180 "https://k-apt-alert-proxy.onrender.com/v1/apt/announcements?region=서울&district=강남구,서초구"
+curl -s --max-time 180 "https://xnyhzyvigazofjoozuub.supabase.co/functions/v1/announcements?region=서울&district=강남구,서초구"
 ```
 
 **중요**: `&&` 체이닝 금지, URL은 항상 `"..."`로 감싸 단일 스트링. 자세한 규칙은 상단 "빠른 응답 원칙 > 3. 프록시 호출 규칙" 참고.
@@ -1077,7 +1077,7 @@ OS 확인 후 macOS/Linux는 `crontab` 한 줄, Windows는 PowerShell `Register-
 
 | STEP 1 선택 | STEP 3 실행 내용 |
 |-------------|----------------|
-| 1. 🔂 1회성 | `POST /v1/apt/notify?<filters>` 즉시 호출 → 결과 보고 |
+| 1. 🔂 1회성 | `POST /functions/v1/notify?<filters>` 즉시 호출 → 결과 보고 |
 | 2. 🔁 /loop | `/loop 24h /korea-apt-alert <조건> 알림` 한 줄 안내만, 사용자가 복붙 실행 |
 | 3. 🗓️ GitHub Actions | `.github/workflows/apt-notify.yml` 예시 yaml 출력 + 필요 Secrets(`SLACK_WEBHOOK`, `PROXY_URL`) 등록 안내 |
 | 4. 💻 로컬 스케줄러 | macOS/Linux `crontab -e` 라인 OR Windows PowerShell Task Scheduler 등록 명령 출력 |
@@ -1143,7 +1143,7 @@ HIGH 우선순위는 알림음 ON, 나머지는 무음 발송.
 
 ## 기술 노트
 
-- 프록시 서버: `https://k-apt-alert-proxy.onrender.com` (Render free tier — 15분 비활성 시 슬립)
+- API 서버: `https://xnyhzyvigazofjoozuub.supabase.co/functions/v1` (Supabase Edge Functions — 항상 활성)
 - 프로필: `~/.config/k-skill/apt-alert-profile.json` (로컬 저장, 서버 전송 없음)
 - 데이터 출처: 공공데이터포털 한국부동산원_청약홈 분양정보 조회 서비스
 - API 키: 프록시 서버에서 관리 — 사용자 노출 없음

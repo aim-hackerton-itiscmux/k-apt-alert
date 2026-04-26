@@ -1,10 +1,13 @@
-name: Render warmup + data prefetch
+# DEPRECATED: pg_cron on Supabase now handles scheduled crawling.
+# This workflow is kept only for the parallel-run period (Render + Supabase).
+# Delete this file after Render is decommissioned.
+
+name: "[DEPRECATED] Render warmup + data prefetch"
 
 on:
-  schedule:
-    # 12분 간격 — Render free tier 15분 슬립 임계 이전
-    # + 짧은 TTL(10분) 카테고리 캐시도 만료 직전 갱신
-    - cron: "*/12 * * * *"
+  # Disabled — uncomment during parallel-run if needed
+  # schedule:
+  #   - cron: "*/12 * * * *"
   workflow_dispatch:
 
 jobs:
@@ -17,8 +20,6 @@ jobs:
 
       - name: Prefetch all 8 categories (keep cache warm)
         run: |
-          # category=all은 ThreadPoolExecutor로 8개 카테고리 병렬 fetch
-          # 이미 warm한 카테고리는 캐시 hit, 만료된 것만 재크롤링
           curl -sS --max-time 180 \
             "https://k-apt-alert-proxy.onrender.com/v1/apt/announcements?category=all&active_only=false" \
             -o /dev/null \

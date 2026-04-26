@@ -30,7 +30,7 @@ jobs:
           PY
 
   e2e-tests:
-    name: E2E against deployed proxy
+    name: E2E against Supabase
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     continue-on-error: true
@@ -40,10 +40,10 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install requests
-      - name: Warmup proxy
-        run: curl -s --max-time 60 "https://k-apt-alert-proxy.onrender.com/health" || true
+      - name: Health check
+        run: curl -s --max-time 15 "https://xnyhzyvigazofjoozuub.supabase.co/functions/v1/health" || true
       - name: E2E personas
         env:
-          PROXY_URL: https://k-apt-alert-proxy.onrender.com
+          PROXY_URL: https://xnyhzyvigazofjoozuub.supabase.co/functions/v1
           PYTHONIOENCODING: utf-8
         run: python test_personas.py
