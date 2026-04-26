@@ -49,6 +49,9 @@ metadata:
 | "내 서류함", "내 서류", "준비 서류" (인증 시) | **서류함 목록 + 진행률** (GET /v1/documents) |
 | "서류 등록", "{서류명} 등록", "주민등록등본 추가" (인증 시) | **서류 신규 등록** (POST /v1/documents) |
 | "서류 만료", "갱신 필요한 서류", "만료 임박" (인증 시) | **만료/만료임박 서류 필터** (GET /v1/documents에서 status 필터링) |
+| "준비 체크리스트 시작", "{공고명} 준비 시작" (인증 시) | **체크리스트 자동 생성** (POST /v1/preparation/init?announcement_id=) |
+| "내 준비 진행률", "준비 어디까지", "{공고명} 준비" (인증 시) | **체크리스트 + 진행률** (GET /v1/preparation, documents 자동 ✅) |
+| "{항목} 체크", "체크 해제" (인증 시) | **단일 항목 토글** (PATCH /v1/preparation/{id}/done) |
 
 ### 3. 프록시 호출 규칙 (필수)
 
@@ -1443,6 +1446,116 @@ GET 응답을 받아 `summary.expiring + expired` 또는 `documents.filter(d => 
 ### 인증 미설정 시 동작
 
 토큰 없으면 "서류함은 청약 코파일럿 앱 로그인 후 사용 가능합니다. CLI 토큰은 마이페이지에서 발급" 안내.
+
+---
+
+## 준비 체크리스트 (인증 필요, 서류함 자동 연동)
+
+청약 신청까지 단계별 할 일 자동 체크리스트. **서류함(documents)과 자동 연동** — 사용자가 서류 등록하면 체크리스트가 자동 ✅.
+
+### 트리거 1 — `"준비 체크리스트 시작"` / `"{공고명} 준비 시작"`
+
+관심 공고 선택 후 첫 1회. 디폴트 12~15개 항목 자동 생성.
+
+```bash
+curl -s --max-time 15 -X POST \
+  -H "Authorization: Bearer $KAPT_AUTH_TOKEN" \
+  ".../functions/v1/preparation/init?announcement_id=apt_2026000123&supply_types=신혼부부,생애최초"
+```
+
+`supply_types` 미지정 시 `user_profiles.special_supply_interests`에서 자동 추출.
+
+**카테고리 / type 5종**:
+- 카테고리: `기본준비` / `서류및결정` / `접수당일`
+- type: `자금` / `자격` / `서류` / `결정` / `접수`
+
+**자동 채워지는 항목 예시**:
+- 기본준비: 통장 예치금 / 무주택 확인 / 자금 계획 / 인증서 (4개)
+- 서류및결정: 등본 / 가족관계 / 통장확인서 / 평형 결정 / 공급유형 결정 (5개)
+- 접수당일: 청약홈 접속 / 신청 진행 / 발표 확인 (3개)
+- 특공 추가: 신혼부부(혼인증명+7년 확인) / 생애최초(주택소유이력) / 다자녀(자녀증빙) 등
+
+### 트리거 2 — `"내 준비 진행률"` / `"{공고명} 준비"`
+
+```bash
+curl -s --max-time 15 \
+  -H "Authorization: Bearer $KAPT_AUTH_TOKEN" \
+  ".../functions/v1/preparation?announcement_id=apt_2026000123"
+```
+
+**응답** (documents 자동 연동 결과 포함):
+```json
+{
+  "items": [
+    {
+      "id": "uuid", "category": "서류및결정", "type": "서류",
+      "title": "주민등록등본 발급",
+      "linked_doc_type": "resident_register",
+      "is_done": false,                      // 사용자가 수동 체크 안 함
+      "linked_document_status": "ready",     // documents 테이블에 ready 있음
+      "auto_done_by_doc": true,              // → 자동 ✅
+      "effective_is_done": true              // 화면에서 체크된 것으로 표시
+    },
+    ...
+  ],
+  "summary": {
+    "total": 14, "done": 6,
+    "auto_done": 3,    // documents로 자동 체크된 개수
+    "manual_done": 3,  // 사용자 수동 체크 개수
+    "pending": 8,
+    "percent": 43      // 화면 헤더에 표시
+  }
+}
+```
+
+**출력 템플릿**:
+```
+✅ 준비 진행률: 43% (6 / 14)
+
+📂 기본 준비 (D-14)
+  ✅ 청약 통장 예치금 확인
+  ⬜ 자금 계획 수립
+
+📂 서류 및 결정 (D-3)
+  ✅ 주민등록등본 발급      [📁 서류함 자동]
+  ✅ 가족관계증명서          [📁 서류함 자동]
+  ⬜ 평형 결정
+
+📂 접수 당일 (D-day)
+  ⬜ 청약홈 접속 (9~17:30)
+  ⬜ 신청 완료
+
+💡 [📁 서류함 자동] 표시 항목은 documents에 등록하면 자동 체크됨
+```
+
+### 트리거 3 — `"{항목} 체크"` / `"체크 해제"`
+
+```bash
+curl -s -X PATCH \
+  -H "Authorization: Bearer $KAPT_AUTH_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"is_done": true}' \
+  ".../functions/v1/preparation/{id}/done"
+```
+
+자동 ✅ 표시되는 항목(`auto_done_by_doc=true`)을 **수동 ⬜ 처리할 수도 있음** — 단, 다음 GET 호출 시 documents 상태가 ready면 다시 자동 ✅. 사용자 의도 우선시되려면 documents에서 해당 doc_type row 삭제 필요.
+
+### documents 자동 연동 매핑
+
+| 체크리스트 항목 (linked_doc_type) | documents.doc_type | 자동 ✅ 조건 |
+|--------------------------------|-------------------|------------|
+| 주민등록등본 발급 | `resident_register` | status='ready' |
+| 가족관계증명서 발급 | `family_relation` | status='ready' |
+| 청약통장 가입확인서 발급 | `savings_account` | status='ready' |
+| 혼인관계증명서 (신혼부부) | `marriage_proof` | status='ready' |
+| 자녀 증빙 (다자녀) | `children_proof` | status='ready' |
+| 주택 소유 이력 없음 (생애최초) | `homeless_proof` | status='ready' |
+
+→ 사용자가 한 번 서류 등록하면 모든 공고의 체크리스트에 자동 반영 (재사용).
+
+### 인증 미설정 시 동작
+
+토큰 없으면 "체크리스트는 청약 코파일럿 앱 로그인 후 사용 가능" 안내.
 
 ---
 
