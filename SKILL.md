@@ -46,6 +46,9 @@ metadata:
 | "내 가점", "확정 가점", "가점 계산" (인증 시) | **가점 트래커** (my-score, GET 본인 / POST 갱신) |
 | "이 공고 분석 후 저장", "리포트 저장" + 공고명 (인증 시) | **AI 리포트 저장 워크플로우** (notice/raw + LLM + POST /reports) |
 | "내 리포트", "내 분석 이력" (인증 시) | **AI 리포트 이력** (GET /v1/reports) |
+| "내 서류함", "내 서류", "준비 서류" (인증 시) | **서류함 목록 + 진행률** (GET /v1/documents) |
+| "서류 등록", "{서류명} 등록", "주민등록등본 추가" (인증 시) | **서류 신규 등록** (POST /v1/documents) |
+| "서류 만료", "갱신 필요한 서류", "만료 임박" (인증 시) | **만료/만료임박 서류 필터** (GET /v1/documents에서 status 필터링) |
 
 ### 3. 프록시 호출 규칙 (필수)
 
@@ -1309,8 +1312,137 @@ curl -s -H "Authorization: Bearer $KAPT_AUTH_TOKEN" \
 | similar-listings | ❌ |
 | my-score | ✅ (본인 user_profiles 필요) |
 | reports 저장·조회 | ✅ |
+| documents (서류함) | ✅ |
 
 인증 토큰 없으면 1~4번은 그대로 사용 가능. 5~7번은 "토큰 필요" 안내.
+
+---
+
+## 서류함 (인증 필요)
+
+청약 신청 시 필요한 서류 (주민등록등본·가족관계증명서·청약통장 가입확인서 등) 메타데이터·파일을 본인 user_id로 격리 보관. Supabase Storage `user-documents` bucket의 `{user_id}/` 폴더에 파일 저장.
+
+### 트리거 1 — `"내 서류함"` / `"내 서류"`
+
+```bash
+curl -s --max-time 15 \
+  -H "Authorization: Bearer $KAPT_AUTH_TOKEN" \
+  "https://xnyhzyvigazofjoozuub.supabase.co/functions/v1/documents"
+```
+
+**응답**:
+```json
+{
+  "documents": [
+    {
+      "id": "uuid",
+      "doc_type": "resident_register",
+      "doc_type_label_ko": "주민등록등본",
+      "description": "최근 3개월 이내 발급분",
+      "is_required": true,
+      "status": "missing",     // 'missing' | 'ready' | 'expiring' | 'expired'
+      "issued_date": null,
+      "expires_date": null,
+      "validity_months": 3,
+      "file_url": null,
+      ...
+    }
+  ],
+  "summary": { "total": 5, "required": 5, "ready": 2, "missing": 1, "expiring": 1, "expired": 1 }
+}
+```
+
+**출력 템플릿** (간결 모드):
+```
+📁 내 서류함 — 준비 완료 2 / 필수 5
+
+✅ 준비됨
+• 가족관계증명서 (발급 2026-04-15, 만료 없음)
+
+⚠️ 갱신 필요 (D-3)
+• 청약통장 가입확인서 — 만료 2026-04-29 → "갱신" 트리거
+
+❌ 미등록 (필수)
+• 주민등록등본 — "최근 3개월 이내 발급분" → "등록" 트리거
+
+🔗 모바일 앱에서 PDF/이미지 업로드 가능
+```
+
+### 트리거 2 — `"서류 등록"` / `"{서류명} 추가"`
+
+```bash
+# 1. (옵션) 파일 업로드 URL 발급 — 모바일 앱이 호출, CLI는 file_url 직접 전달 가능
+curl -s -X POST \
+  -H "Authorization: Bearer $KAPT_AUTH_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"filename":"resident_register.pdf","mime":"application/pdf"}' \
+  ".../functions/v1/documents/upload-url"
+# → { storage_path, upload_url, token, bucket }
+
+# 2. 파일 업로드 (PUT to upload_url with token)
+curl -X PUT -H "Authorization: Bearer <token>" -H "Content-Type: application/pdf" \
+  --data-binary @resident_register.pdf "<upload_url>"
+
+# 3. 메타 row 등록
+curl -s -X POST \
+  -H "Authorization: Bearer $KAPT_AUTH_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "doc_type": "resident_register",
+    "doc_type_label_ko": "주민등록등본",
+    "description": "최근 3개월 이내 발급분",
+    "issued_date": "2026-04-20",
+    "validity_months": 3,
+    "file_url": "https://...signed.url",
+    "file_storage_path": "{user_id}/1751234567_resident_register.pdf",
+    "file_byte_size": 245678,
+    "file_mime": "application/pdf"
+  }' \
+  ".../functions/v1/documents"
+```
+
+**doc_type 화이트리스트** (서버 검증):
+- `resident_register` (주민등록등본)
+- `family_relation` (가족관계증명서)
+- `savings_account` (청약통장 가입확인서)
+- `income_proof` (소득증빙)
+- `homeless_proof` (무주택증명)
+- `marriage_proof` (혼인관계증명)
+- `children_proof` (자녀/다자녀)
+- `other`
+
+**자동 status 계산** (DB 트리거):
+- `file_url` 없음 → `missing`
+- 만료일 없음 → `ready`
+- 만료일 < 오늘 → `expired`
+- 만료일 < 오늘 + 7일 → `expiring`
+- 그 외 → `ready`
+
+→ 발급일 + `validity_months`로 만료일 자동 계산. 사용자는 발급일만 입력하면 됨.
+
+### 트리거 3 — `"만료 임박 서류"`
+
+GET 응답을 받아 `summary.expiring + expired` 또는 `documents.filter(d => d.status === 'expiring' || 'expired')`로 표시:
+```
+⚠️ 갱신 필요한 서류 (3건)
+
+1. 주민등록등본 — 만료 D+0 (오늘) ❌ 즉시 재발급 필요
+2. 청약통장 가입확인서 — 만료 D-3
+3. 소득증빙 — 만료 D-5
+
+💡 서류 갱신 후 PATCH로 issued_date·file_url 업데이트
+```
+
+### 보안·프라이버시
+
+- **파일은 Supabase Storage `user-documents` bucket의 `{user_id}/` 폴더에만** — RLS로 본인만 read/write
+- file_url은 signed URL (만료 있음) 또는 비공개 → 다운로드 시 매번 새 signed URL 발급
+- 메타 row에서 `file_byte_size 10MB 상한`, `mime 화이트리스트` (PDF/JPEG/PNG/HEIC만)
+- doc_type 화이트리스트로 임의 카테고리 차단
+
+### 인증 미설정 시 동작
+
+토큰 없으면 "서류함은 청약 코파일럿 앱 로그인 후 사용 가능합니다. CLI 토큰은 마이페이지에서 발급" 안내.
 
 ---
 
